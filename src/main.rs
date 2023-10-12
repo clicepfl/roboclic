@@ -4,7 +4,7 @@ use teloxide::{
     utils::command::BotCommands,
 };
 
-use crate::commands::{command_callback_handler, command_message_handler, Command, PollState};
+use crate::commands::{command_callback_query_handler, command_message_handler, Command, PollState};
 
 mod commands;
 mod config;
@@ -22,7 +22,7 @@ async fn main() {
 
     log::info!("Initializing dispatchers");
     let message_handler = Update::filter_message().chain(command_message_handler());
-    let callback_handler = Update::filter_callback_query().chain(command_callback_handler());
+    let callback_handler = Update::filter_callback_query().chain(command_callback_query_handler());
 
     let mut bot_dispatcher = Dispatcher::builder(
         bot,

@@ -1,4 +1,3 @@
-use log::error;
 use teloxide::{
     dispatching::DpHandlerDescription, prelude::*, types::Message, utils::command::BotCommands, Bot,
 };
@@ -6,7 +5,49 @@ use teloxide::{
 use crate::{config::config, HandlerResult};
 
 pub use self::poll::PollState;
-use self::poll::{poll_callback_query_handler, poll_message_handler};
+
+pub fn command_message_handler(
+) -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
+    dptree::entry()
+        .branch(
+            dptree::entry()
+                .filter_command::<Command>()
+                .chain(verify_authorization())
+                .branch(dptree::case![Command::Help].endpoint(help))
+                .branch(dptree::case![Command::Bureau].endpoint(bureau))
+                .branch(dptree::case![Command::Poll].endpoint(poll::start_poll_dialogue)),
+        )
+        .branch(dptree::case![PollState::SetQuote { message_id, target }].endpoint(poll::set_quote))
+}
+
+pub fn command_callback_query_handler(
+) -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
+    dptree::case![PollState::ChooseTarget { message_id }].endpoint(poll::choose_target)
+}
+
+/// Check that the chat from which a command originated as the authorization to use it
+///
+/// Required dependencies: `teloxide_core::types::message::Message`, `roboclic_v2::commands::Command`
+fn verify_authorization() -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
+    dptree::entry().filter(|command: Command, msg: Message| {
+        let authorized =
+            if let Some(authorized_chats) = config().access_control.get(command.shortand()) {
+                authorized_chats.contains(&msg.chat.id.0)
+            } else {
+                true
+            };
+
+        if !authorized {
+            log::info!(
+                "Command /{} refused for chat {}",
+                command.shortand(),
+                msg.chat.id
+            );
+        }
+
+        authorized
+    })
+}
 
 #[derive(BotCommands, Clone)]
 #[command(
@@ -33,92 +74,35 @@ impl Command {
     }
 }
 
-/// Check that the chat from which a command originated as the authorization to use it
-///
-/// Required dependencies: `teloxide_core::types::message::Message`, `roboclic_v2::commands::Command`
-fn verify_authorization() -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
-    dptree::entry().filter(|command: Command, msg: Message| {
-        let authorized =
-            if let Some(authorized_chats) = config().access_control.get(command.shortand()) {
-                authorized_chats.contains(&msg.chat.id.0)
-            } else {
-                true
-            };
-
-        if !authorized {
-            log::info!(
-                "Command {} refused for chat {}",
-                command.shortand(),
-                msg.chat.id
-            );
-            log::error!(
-                "Command {} refused for chat {}",
-                command.shortand(),
-                msg.chat.id
-            );
-        }
-
-        authorized
-    })
-}
-
-/// Handle an incoming command. This does not verify whether the command is authorized.
-///
-/// Required dependencies: `teloxide_core::types::message::Message`, `roboclic_v2::commands::Command`, `teloxide_core::bot::Bot`
-///
-/// Note:  The command /poll is handled by the submodule `poll`, since in requires a more complex dialogue
-async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> HandlerResult {
-    match cmd {
-        Command::Help => {
-            bot.send_message(msg.chat.id, Command::descriptions().to_string())
-                .await?;
-        }
-        Command::Bureau => {
-            bot.send_poll(
-                msg.chat.id,
-                "Qui est au bureau ?",
-                [
-                    "Je suis actuellement au bureau".to_owned(),
-                    "Je suis à proximité du bureau".to_owned(),
-                    "Je compte m'y rendre bientôt".to_owned(),
-                    "J'y suis pas".to_owned(),
-                    "Je suis à Satellite".to_owned(),
-                    "Je suis pas en Suisse".to_owned(),
-                ],
-            )
-            .is_anonymous(false)
-            .await?;
-        }
-        Command::Poll => error!("UNREACHABLE"),
-    };
-
+async fn help(bot: Bot, msg: Message) -> HandlerResult {
+    bot.send_message(msg.chat.id, Command::descriptions().to_string())
+        .await?;
     Ok(())
 }
 
-pub fn command_message_handler(
-) -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
-    dptree::entry().branch(poll_message_handler()).branch(
-        dptree::entry()
-            .filter_command::<Command>()
-            .chain(verify_authorization())
-            .endpoint(handle_command),
+async fn bureau(bot: Bot, msg: Message) -> HandlerResult {
+    bot.send_poll(
+        msg.chat.id,
+        "Qui est au bureau ?",
+        [
+            "Je suis actuellement au bureau".to_owned(),
+            "Je suis à proximité du bureau".to_owned(),
+            "Je compte m'y rendre bientôt".to_owned(),
+            "J'y suis pas".to_owned(),
+            "Je suis à Satellite".to_owned(),
+            "Je suis pas en Suisse".to_owned(),
+        ],
     )
-}
-
-pub fn command_callback_query_handler(
-) -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
-    dptree::entry().branch(poll_callback_query_handler())
+    .is_anonymous(false)
+    .await?;
+    Ok(())
 }
 
 mod poll {
     use teloxide::{
-        dispatching::{
-            dialogue::{GetChatId, InMemStorage},
-            DpHandlerDescription, HandlerExt,
-        },
-        dptree,
+        dispatching::dialogue::{GetChatId, InMemStorage},
         payloads::{SendMessageSetters, SendPollSetters},
-        prelude::{DependencyMap, Dialogue, Endpoint},
+        prelude::Dialogue,
         requests::Requester,
         types::{
             CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, MessageId,
@@ -128,8 +112,6 @@ mod poll {
     };
 
     use crate::{config::config, HandlerResult};
-
-    use super::{verify_authorization, Command};
 
     #[derive(Default, Clone, Debug)]
     pub enum PollState {
@@ -147,10 +129,14 @@ mod poll {
             target: String,
         },
     }
-    type PollDialogue = Dialogue<PollState, InMemStorage<PollState>>;
+    pub type PollDialogue = Dialogue<PollState, InMemStorage<PollState>>;
 
     /// Starts the /poll dialogue by sending a message with an inline keyboard to select the target of the /poll.
-    async fn start_poll_dialogue(bot: Bot, msg: Message, dialogue: PollDialogue) -> HandlerResult {
+    pub async fn start_poll_dialogue(
+        bot: Bot,
+        msg: Message,
+        dialogue: PollDialogue,
+    ) -> HandlerResult {
         log::info!("Starting /poll dialogue");
 
         log::debug!("Removing /poll message");
@@ -192,7 +178,7 @@ mod poll {
 
     /// Handles the callback from the inline keyboard, and sends a message to query the quote.
     /// The CallbackQuery data contains the name of the target.
-    async fn choose_target(
+    pub async fn choose_target(
         bot: Bot,
         callback_query: CallbackQuery,
         dialogue: PollDialogue,
@@ -219,7 +205,7 @@ mod poll {
 
     /// Receives the quote and creates the poll. Since a poll can have at most 10 options,
     /// it is split in two polls, each containing half of the comittee.
-    async fn set_quote(
+    pub async fn set_quote(
         bot: Bot,
         msg: Message,
         dialogue: PollDialogue,
@@ -282,22 +268,5 @@ mod poll {
         }
 
         Ok(())
-    }
-
-    pub fn poll_message_handler(
-    ) -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
-        dptree::entry()
-            .branch(
-                dptree::entry()
-                    .filter_command::<Command>()
-                    .chain(verify_authorization())
-                    .filter(|c: Command| matches!(c, Command::Poll { .. }))
-                    .endpoint(start_poll_dialogue),
-            )
-            .branch(dptree::case![PollState::SetQuote { message_id, target }].endpoint(set_quote))
-    }
-    pub fn poll_callback_query_handler(
-    ) -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
-        dptree::case![PollState::ChooseTarget { message_id }].endpoint(choose_target)
     }
 }

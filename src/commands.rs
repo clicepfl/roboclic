@@ -99,6 +99,7 @@ async fn bureau(bot: Bot, msg: Message) -> HandlerResult {
 }
 
 mod poll {
+    use rand::{seq::SliceRandom, thread_rng, Rng};
     use teloxide::{
         dispatching::dialogue::{GetChatId, InMemStorage},
         payloads::{SendMessageSetters, SendPollSetters},
@@ -217,14 +218,15 @@ mod poll {
             log::debug!("Removing quote message");
             bot.delete_message(dialogue.chat_id(), msg.id).await?;
 
-            let split_pos = (config().committee.len() / 2) as u8;
+            let split_pos = 10 as u8; // max poll options
 
-            // Splits the committee and add an option to refer to the other poll.
-            let polls = config().committee.split_at(split_pos as usize);
-            let polls = (
-                [polls.0, &["J'ai voté en dessous".to_owned()]].concat(),
-                [polls.1, &["J'ai voté en dessus".to_owned()]].concat(),
-            );
+            // Splits the committee to have only 10 answers possible.
+            let mut poll = config().committee.clone();
+            poll.retain(|s| -> bool {*s != target});    // filter the target from options
+            poll.shuffle(&mut thread_rng());                // shuffle the options
+            let index = thread_rng().gen_range(0..split_pos); // generate a valid index to insert target back
+            poll.insert(index as usize, target.clone());        // insert target back in options
+            let polls = poll.split_at(split_pos as usize);  // split options to have only 10 options
 
             let target = config()
                 .committee
@@ -233,11 +235,11 @@ mod poll {
                 .find_map(|(i, s)| (*s == target).then_some(i as u8))
                 .unwrap_or_default();
 
-            log::debug!("Sending first poll");
+            log::debug!("Sending poll");
             bot.send_poll(
                 dialogue.chat_id(),
                 format!(r#"Qui a dit: "{}" ?"#, text),
-                polls.0,
+                polls.0.to_vec(),
             )
             .type_(teloxide::types::PollType::Quiz)
             .is_anonymous(false)
@@ -245,21 +247,6 @@ mod poll {
                 target
             } else {
                 split_pos
-            })
-            .await?;
-
-            log::debug!("Sending second poll");
-            bot.send_poll(
-                dialogue.chat_id(),
-                format!(r#"Qui a dit: "{}" ?"#, text),
-                polls.1,
-            )
-            .type_(teloxide::types::PollType::Quiz)
-            .is_anonymous(false)
-            .correct_option_id(if target >= split_pos {
-                target - split_pos
-            } else {
-                config().committee.len() as u8 - split_pos
             })
             .await?;
 

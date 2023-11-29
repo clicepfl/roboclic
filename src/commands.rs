@@ -224,7 +224,7 @@ mod poll {
             let mut poll = config().committee.clone();
             poll.retain(|s| -> bool {*s != target});    // filter the target from options
             poll.shuffle(&mut thread_rng());                // shuffle the options
-            let index = thread_rng().gen_range(0..split_pos); // generate a valid index to insert target back
+            let index = thread_rng().gen_range(0..(split_pos-1)); // generate a valid index to insert target back
             poll.insert(index as usize, target.clone());        // insert target back in options
             let polls = poll.split_at(split_pos as usize);  // split options to have only 10 options
 

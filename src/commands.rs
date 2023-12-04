@@ -227,13 +227,13 @@ mod poll {
             poll.shuffle(&mut thread_rng());                // shuffle the options
             let index = thread_rng().gen_range(0..(POLL_MAX_OPTIONS_COUNT-1)); // generate a valid index to insert target back
             poll.insert(index as usize, target.clone());        // insert target back in options
-            let polls = poll.split_at(POLL_MAX_OPTIONS_COUNT as usize);  // split options to have only 10 options
+            let poll = poll.split_at(POLL_MAX_OPTIONS_COUNT as usize).0.to_vec();  // split options to have only 10 options
 
             log::debug!("Sending poll");
             bot.send_poll(
                 dialogue.chat_id(),
                 format!(r#"Qui a dit: "{}" ?"#, text),
-                polls.0.to_vec(),
+                poll,
             )
             .type_(teloxide::types::PollType::Quiz)
             .is_anonymous(false)

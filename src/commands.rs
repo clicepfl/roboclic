@@ -6,6 +6,8 @@ use crate::{config::config, HandlerResult};
 
 pub use self::poll::PollState;
 
+const POLL_MAX_OPTIONS_COUNT : u8 = 10; // max poll options
+
 pub fn command_message_handler(
 ) -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
     dptree::entry()
@@ -99,6 +101,7 @@ async fn bureau(bot: Bot, msg: Message) -> HandlerResult {
 }
 
 mod poll {
+    use crate::commands::POLL_MAX_OPTIONS_COUNT;
     use rand::{seq::SliceRandom, thread_rng, Rng};
     use teloxide::{
         dispatching::dialogue::{GetChatId, InMemStorage},
@@ -218,22 +221,13 @@ mod poll {
             log::debug!("Removing quote message");
             bot.delete_message(dialogue.chat_id(), msg.id).await?;
 
-            let split_pos = 10 as u8; // max poll options
-
             // Splits the committee to have only 10 answers possible.
             let mut poll = config().committee.clone();
             poll.retain(|s| -> bool {*s != target});    // filter the target from options
             poll.shuffle(&mut thread_rng());                // shuffle the options
-            let index = thread_rng().gen_range(0..(split_pos-1)); // generate a valid index to insert target back
+            let index = thread_rng().gen_range(0..(POLL_MAX_OPTIONS_COUNT-1)); // generate a valid index to insert target back
             poll.insert(index as usize, target.clone());        // insert target back in options
-            let polls = poll.split_at(split_pos as usize);  // split options to have only 10 options
-
-            let target = config()
-                .committee
-                .iter()
-                .enumerate()
-                .find_map(|(i, s)| (*s == target).then_some(i as u8))
-                .unwrap_or_default();
+            let polls = poll.split_at(POLL_MAX_OPTIONS_COUNT as usize);  // split options to have only 10 options
 
             log::debug!("Sending poll");
             bot.send_poll(
@@ -243,11 +237,7 @@ mod poll {
             )
             .type_(teloxide::types::PollType::Quiz)
             .is_anonymous(false)
-            .correct_option_id(if target < split_pos {
-                target
-            } else {
-                split_pos
-            })
+            .correct_option_id(index)
             .await?;
 
             log::debug!("Resetting dialogue status");

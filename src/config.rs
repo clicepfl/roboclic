@@ -18,6 +18,8 @@ pub struct EnvConfig {
     pub data_dir: String,
     #[envconfig(from = "DATABASE_URL")]
     pub database_url: String,
+    #[envconfig(from = "ADMIN_TOKEN")]
+    pub admin_token: String,
 }
 
 pub struct Config {
@@ -26,6 +28,7 @@ pub struct Config {
     pub access_control: HashMap<String, Vec<i64>>,
     pub data_dir: String,
     pub database_url: String,
+    pub admin_token: String,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -53,6 +56,7 @@ pub fn config() -> &'static Config {
             access_control: json_config.access_control,
             data_dir: env_config.data_dir,
             database_url: env_config.database_url,
+            admin_token: env_config.admin_token,
         }
     })
 }

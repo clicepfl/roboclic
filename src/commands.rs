@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use sqlx::SqlitePool;
 use teloxide::{
     dispatching::DpHandlerDescription, prelude::*, types::Message, utils::command::BotCommands, Bot,
 };
@@ -6,7 +9,7 @@ use crate::{config::config, HandlerResult};
 
 pub use self::poll::PollState;
 
-const POLL_MAX_OPTIONS_COUNT : u8 = 10; // max poll options
+const POLL_MAX_OPTIONS_COUNT: u8 = 10; // max poll options
 
 pub fn command_message_handler(
 ) -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
@@ -17,7 +20,8 @@ pub fn command_message_handler(
                 .chain(verify_authorization())
                 .branch(dptree::case![Command::Help].endpoint(help))
                 .branch(dptree::case![Command::Bureau].endpoint(bureau))
-                .branch(dptree::case![Command::Poll].endpoint(poll::start_poll_dialogue)),
+                .branch(dptree::case![Command::Poll].endpoint(poll::start_poll_dialogue))
+                .branch(dptree::case![Command::Authenticate(token, name)].endpoint(authenticate)),
         )
         .branch(dptree::case![PollState::SetQuote { message_id, target }].endpoint(poll::set_quote))
 }
@@ -50,7 +54,6 @@ fn verify_authorization() -> Endpoint<'static, DependencyMap, HandlerResult, DpH
         authorized
     })
 }
-
 #[derive(BotCommands, Clone)]
 #[command(
     rename_rule = "lowercase",
@@ -63,6 +66,12 @@ pub enum Command {
     Bureau,
     #[command(description = "Crée un quiz sur une citation d'un des membres du comité")]
     Poll,
+    #[command(
+        description = "Authentifcation admin: /auth <token> <name>",
+        parse_with = "split",
+        separator = " "
+    )]
+    Authenticate(String, String),
 }
 
 impl Command {
@@ -72,6 +81,7 @@ impl Command {
             Self::Help => "help",
             Self::Bureau => "bureau",
             Self::Poll => "poll",
+            Self::Authenticate(..) => "auth",
         }
     }
 }
@@ -97,6 +107,34 @@ async fn bureau(bot: Bot, msg: Message) -> HandlerResult {
     )
     .is_anonymous(false)
     .await?;
+    Ok(())
+}
+
+async fn authenticate(
+    bot: Bot,
+    msg: Message,
+    command: Command,
+    db: Arc<SqlitePool>,
+) -> HandlerResult {
+    let Command::Authenticate(token, name) = command else {
+        return Ok(()); // Cannot happen because of the dptree::case guard
+    };
+
+    if token == config().admin_token {
+        let id = msg.chat.id.to_string();
+        sqlx::query!(
+            r#"INSERT INTO admins(telegram_id, "name") VALUES($1, $2)"#,
+            id,
+            name
+        )
+        .execute(db.as_ref())
+        .await?;
+        bot.send_message(msg.chat.id, "Authentication successful !")
+            .await?;
+    } else {
+        bot.send_message(msg.chat.id, "Token is incorrect").await?;
+    }
+
     Ok(())
 }
 
@@ -223,11 +261,11 @@ mod poll {
 
             // Splits the committee to have only 10 answers possible.
             let mut poll = config().committee.clone();
-            poll.retain(|s| -> bool {*s != target});    // filter the target from options
-            poll.shuffle(&mut thread_rng());                // shuffle the options
-            let index = thread_rng().gen_range(0..(POLL_MAX_OPTIONS_COUNT-1)); // generate a valid index to insert target back
-            poll.insert(index as usize, target.clone());        // insert target back in options
-            let poll = poll.split_at(POLL_MAX_OPTIONS_COUNT as usize).0.to_vec();  // split options to have only 10 options
+            poll.retain(|s| -> bool { *s != target }); // filter the target from options
+            poll.shuffle(&mut thread_rng()); // shuffle the options
+            let index = thread_rng().gen_range(0..(POLL_MAX_OPTIONS_COUNT - 1)); // generate a valid index to insert target back
+            poll.insert(index as usize, target.clone()); // insert target back in options
+            let poll = poll.split_at(POLL_MAX_OPTIONS_COUNT as usize).0.to_vec(); // split options to have only 10 options
 
             log::debug!("Sending poll");
             bot.send_poll(

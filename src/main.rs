@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use sqlx::{migrate::MigrateDatabase, SqlitePool};
 use teloxide::{
     dispatching::dialogue::{self, InMemStorage},
@@ -57,7 +59,10 @@ async fn main() {
     .error_handler(LoggingErrorHandler::with_custom_text(
         "An error has occurred in the dispatcher",
     ))
-    .dependencies(dptree::deps![InMemStorage::<PollState>::new(), database])
+    .dependencies(dptree::deps![
+        InMemStorage::<PollState>::new(),
+        Arc::new(database)
+    ])
     .enable_ctrlc_handler()
     .build();
 

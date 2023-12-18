@@ -14,12 +14,18 @@ pub struct EnvConfig {
     pub bot_token: String,
     #[envconfig(from = "CONFIG_FILE")]
     pub config_file: String,
+    #[envconfig(from = "DATA_DIR")]
+    pub data_dir: String,
+    #[envconfig(from = "DATABASE_URL")]
+    pub database_url: String,
 }
 
 pub struct Config {
     pub committee: Vec<String>,
     pub bot_token: String,
     pub access_control: HashMap<String, Vec<i64>>,
+    pub data_dir: String,
+    pub database_url: String,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -45,6 +51,8 @@ pub fn config() -> &'static Config {
             committee: json_config.committee,
             bot_token: env_config.bot_token,
             access_control: json_config.access_control,
+            data_dir: env_config.data_dir,
+            database_url: env_config.database_url,
         }
     })
 }

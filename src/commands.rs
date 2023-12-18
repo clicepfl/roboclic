@@ -2,7 +2,11 @@ use std::sync::Arc;
 
 use sqlx::SqlitePool;
 use teloxide::{
-    dispatching::DpHandlerDescription, prelude::*, types::Message, utils::command::BotCommands, Bot,
+    dispatching::DpHandlerDescription,
+    prelude::*,
+    types::{Chat, Message},
+    utils::command::BotCommands,
+    Bot,
 };
 
 use crate::{config::config, HandlerResult};
@@ -21,7 +25,9 @@ pub fn command_message_handler(
                 .branch(dptree::case![Command::Help].endpoint(help))
                 .branch(dptree::case![Command::Bureau].endpoint(bureau))
                 .branch(dptree::case![Command::Poll].endpoint(poll::start_poll_dialogue))
-                .branch(dptree::case![Command::Authenticate(token, name)].endpoint(authenticate)),
+                .branch(dptree::case![Command::Authenticate(token, name)].endpoint(authenticate))
+                .branch(verify_admin())
+                .chain(dptree::entry()),
         )
         .branch(dptree::case![PollState::SetQuote { message_id, target }].endpoint(poll::set_quote))
 }
@@ -54,6 +60,23 @@ fn verify_authorization() -> Endpoint<'static, DependencyMap, HandlerResult, DpH
         authorized
     })
 }
+
+/// Check that the chat is admin
+///
+/// Required dependencies: `teloxide_core::types::chat::Chat`, `sqlx_sqlite::SqlitePool`
+fn verify_admin() -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
+    dptree::entry().filter_async(|chat: Chat, db: Arc<SqlitePool>| async move {
+        let id = chat.id.to_string();
+        sqlx::query!(
+            "SELECT COUNT(*) AS is_admin FROM admins WHERE telegram_id = $1",
+            id
+        )
+        .fetch_one(db.as_ref())
+        .await
+        .is_ok_and(|r| r.is_admin > 0)
+    })
+}
+
 #[derive(BotCommands, Clone)]
 #[command(
     rename_rule = "lowercase",

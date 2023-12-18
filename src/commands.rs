@@ -2,11 +2,7 @@ use std::sync::Arc;
 
 use sqlx::SqlitePool;
 use teloxide::{
-    dispatching::DpHandlerDescription,
-    prelude::*,
-    types::{Chat, Message},
-    utils::command::BotCommands,
-    Bot,
+    dispatching::DpHandlerDescription, prelude::*, types::Message, utils::command::BotCommands, Bot,
 };
 
 use crate::{config::config, HandlerResult};
@@ -27,7 +23,9 @@ pub fn command_message_handler(
                 .branch(dptree::case![Command::Poll].endpoint(poll::start_poll_dialogue))
                 .branch(dptree::case![Command::Authenticate(token, name)].endpoint(authenticate))
                 .branch(verify_admin())
-                .chain(dptree::entry()),
+                .chain(
+                    dptree::entry().branch(dptree::case![Command::AdminList].endpoint(admin_list)),
+                ),
         )
         .branch(dptree::case![PollState::SetQuote { message_id, target }].endpoint(poll::set_quote))
 }
@@ -63,10 +61,10 @@ fn verify_authorization() -> Endpoint<'static, DependencyMap, HandlerResult, DpH
 
 /// Check that the chat is admin
 ///
-/// Required dependencies: `teloxide_core::types::chat::Chat`, `sqlx_sqlite::SqlitePool`
+/// Required dependencies: `teloxide_core::types::message::Message`, `sqlx_sqlite::SqlitePool`
 fn verify_admin() -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
-    dptree::entry().filter_async(|chat: Chat, db: Arc<SqlitePool>| async move {
-        let id = chat.id.to_string();
+    dptree::entry().filter_async(|msg: Message, db: Arc<SqlitePool>| async move {
+        let id = msg.chat.id.to_string();
         sqlx::query!(
             "SELECT COUNT(*) AS is_admin FROM admins WHERE telegram_id = $1",
             id
@@ -75,6 +73,27 @@ fn verify_admin() -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDe
         .await
         .is_ok_and(|r| r.is_admin > 0)
     })
+}
+
+async fn admin_list(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResult {
+    let admins = sqlx::query!(r#"SELECT "name" FROM admins"#)
+        .fetch_all(db.as_ref())
+        .await?;
+
+    bot.send_message(
+        msg.chat.id,
+        format!(
+            "Current admin(s):\n{}",
+            admins
+                .into_iter()
+                .map(|r| format!(" - {}", r.name))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+    )
+    .await?;
+
+    Ok(())
 }
 
 #[derive(BotCommands, Clone)]
@@ -95,6 +114,8 @@ pub enum Command {
         separator = " "
     )]
     Authenticate(String, String),
+    #[command(description = "Liste les admins")]
+    AdminList,
 }
 
 impl Command {
@@ -105,6 +126,7 @@ impl Command {
             Self::Bureau => "bureau",
             Self::Poll => "poll",
             Self::Authenticate(..) => "auth",
+            Self::AdminList => "adminlist",
         }
     }
 }

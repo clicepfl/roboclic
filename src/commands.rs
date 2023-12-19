@@ -24,7 +24,9 @@ pub fn command_message_handler(
                 .branch(dptree::case![Command::Authenticate(token, name)].endpoint(authenticate))
                 .branch(verify_admin())
                 .chain(
-                    dptree::entry().branch(dptree::case![Command::AdminList].endpoint(admin_list)),
+                    dptree::entry()
+                        .branch(dptree::case![Command::AdminList].endpoint(admin_list))
+                        .branch(dptree::case![Command::AdminRemove(name)].endpoint(admin_remove)),
                 ),
         )
         .branch(dptree::case![PollState::SetQuote { message_id, target }].endpoint(poll::set_quote))
@@ -96,6 +98,46 @@ async fn admin_list(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResul
     Ok(())
 }
 
+async fn admin_remove(
+    bot: Bot,
+    msg: Message,
+    command: Command,
+    db: Arc<SqlitePool>,
+) -> HandlerResult {
+    let Command::AdminRemove(target) = command else {
+        return Ok(()); // Cannot happen because of the guard
+    };
+
+    let mut tx = db.begin().await?;
+
+    if sqlx::query!(
+        "SELECT COUNT(*) AS count FROM admins WHERE name = $1",
+        target
+    )
+    .fetch_one(tx.as_mut())
+    .await?
+    .count
+        == 0
+    {
+        bot.send_message(msg.chat.id, format!("{} is not an admin", target))
+            .await?;
+        return Ok(());
+    }
+
+    sqlx::query!("DELETE FROM admins WHERE name = $1", target)
+        .execute(tx.as_mut())
+        .await?;
+    tx.commit().await?;
+
+    bot.send_message(
+        msg.chat.id,
+        format!("{} successfully removed from admins", target),
+    )
+    .await?;
+
+    Ok(())
+}
+
 #[derive(BotCommands, Clone)]
 #[command(
     rename_rule = "lowercase",
@@ -116,6 +158,8 @@ pub enum Command {
     Authenticate(String, String),
     #[command(description = "Liste les admins")]
     AdminList,
+    #[command(description = "Supprime un admin à partir de son nom")]
+    AdminRemove(String),
 }
 
 impl Command {
@@ -127,6 +171,7 @@ impl Command {
             Self::Poll => "poll",
             Self::Authenticate(..) => "auth",
             Self::AdminList => "adminlist",
+            Self::AdminRemove(..) => "adminremove",
         }
     }
 }

@@ -17,12 +17,12 @@ pub fn command_message_handler(
         .branch(
             dptree::entry()
                 .filter_command::<Command>()
-                .chain(verify_authorization())
+                .chain(require_authorization())
                 .branch(dptree::case![Command::Help].endpoint(help))
                 .branch(dptree::case![Command::Bureau].endpoint(bureau))
                 .branch(dptree::case![Command::Poll].endpoint(poll::start_poll_dialogue))
                 .branch(dptree::case![Command::Authenticate(token, name)].endpoint(authenticate))
-                .branch(verify_admin())
+                .branch(require_admin())
                 .chain(
                     dptree::entry()
                         .branch(dptree::case![Command::AdminList].endpoint(admin_list))
@@ -37,10 +37,13 @@ pub fn command_callback_query_handler(
     dptree::case![PollState::ChooseTarget { message_id }].endpoint(poll::choose_target)
 }
 
+// ----------------------------- ACCESS CONTROL -------------------------------
+
 /// Check that the chat from which a command originated as the authorization to use it
 ///
 /// Required dependencies: `teloxide_core::types::message::Message`, `roboclic_v2::commands::Command`
-fn verify_authorization() -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
+fn require_authorization() -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription>
+{
     dptree::entry().filter(|command: Command, msg: Message| {
         let authorized =
             if let Some(authorized_chats) = config().access_control.get(command.shortand()) {
@@ -64,7 +67,7 @@ fn verify_authorization() -> Endpoint<'static, DependencyMap, HandlerResult, DpH
 /// Check that the chat is admin
 ///
 /// Required dependencies: `teloxide_core::types::message::Message`, `sqlx_sqlite::SqlitePool`
-fn verify_admin() -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
+fn require_admin() -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
     dptree::entry().filter_async(|msg: Message, db: Arc<SqlitePool>| async move {
         let id = msg.chat.id.to_string();
         sqlx::query!(
@@ -75,6 +78,100 @@ fn verify_admin() -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDe
         .await
         .is_ok_and(|r| r.is_admin > 0)
     })
+}
+
+// --------------------------- AVAILABLE COMMANDS -----------------------------
+
+#[derive(BotCommands, Clone)]
+#[command(
+    rename_rule = "lowercase",
+    description = "These commands are supported:"
+)]
+pub enum Command {
+    #[command(description = "display this text.")]
+    Help,
+    #[command(description = "Crée un sondage pour savoir qui est au bureau")]
+    Bureau,
+    #[command(description = "Crée un quiz sur une citation d'un des membres du comité")]
+    Poll,
+    #[command(
+        description = "Authentifcation admin: /auth <token> <name>",
+        parse_with = "split",
+        separator = " "
+    )]
+    Authenticate(String, String),
+    #[command(description = "Liste les admins")]
+    AdminList,
+    #[command(description = "Supprime un admin à partir de son nom")]
+    AdminRemove(String),
+}
+
+impl Command {
+    // Used as key for the access control map
+    pub fn shortand(&self) -> &str {
+        match self {
+            Self::Help => "help",
+            Self::Bureau => "bureau",
+            Self::Poll => "poll",
+            Self::Authenticate(..) => "auth",
+            Self::AdminList => "adminlist",
+            Self::AdminRemove(..) => "adminremove",
+        }
+    }
+}
+
+// ---------------------------- COMMAND ENDPOINTS -----------------------------
+
+async fn help(bot: Bot, msg: Message) -> HandlerResult {
+    bot.send_message(msg.chat.id, Command::descriptions().to_string())
+        .await?;
+    Ok(())
+}
+
+async fn bureau(bot: Bot, msg: Message) -> HandlerResult {
+    bot.send_poll(
+        msg.chat.id,
+        "Qui est au bureau ?",
+        [
+            "Je suis actuellement au bureau".to_owned(),
+            "Je suis à proximité du bureau".to_owned(),
+            "Je compte m'y rendre bientôt".to_owned(),
+            "J'y suis pas".to_owned(),
+            "Je suis à Satellite".to_owned(),
+            "Je suis pas en Suisse".to_owned(),
+        ],
+    )
+    .is_anonymous(false)
+    .await?;
+    Ok(())
+}
+
+async fn authenticate(
+    bot: Bot,
+    msg: Message,
+    command: Command,
+    db: Arc<SqlitePool>,
+) -> HandlerResult {
+    let Command::Authenticate(token, name) = command else {
+        return Ok(()); // Cannot happen because of the dptree::case guard
+    };
+
+    if token == config().admin_token {
+        let id = msg.chat.id.to_string();
+        sqlx::query!(
+            r#"INSERT INTO admins(telegram_id, "name") VALUES($1, $2)"#,
+            id,
+            name
+        )
+        .execute(db.as_ref())
+        .await?;
+        bot.send_message(msg.chat.id, "Authentication successful !")
+            .await?;
+    } else {
+        bot.send_message(msg.chat.id, "Token is incorrect").await?;
+    }
+
+    Ok(())
 }
 
 async fn admin_list(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResult {
@@ -134,96 +231,6 @@ async fn admin_remove(
         format!("{} successfully removed from admins", target),
     )
     .await?;
-
-    Ok(())
-}
-
-#[derive(BotCommands, Clone)]
-#[command(
-    rename_rule = "lowercase",
-    description = "These commands are supported:"
-)]
-pub enum Command {
-    #[command(description = "display this text.")]
-    Help,
-    #[command(description = "Crée un sondage pour savoir qui est au bureau")]
-    Bureau,
-    #[command(description = "Crée un quiz sur une citation d'un des membres du comité")]
-    Poll,
-    #[command(
-        description = "Authentifcation admin: /auth <token> <name>",
-        parse_with = "split",
-        separator = " "
-    )]
-    Authenticate(String, String),
-    #[command(description = "Liste les admins")]
-    AdminList,
-    #[command(description = "Supprime un admin à partir de son nom")]
-    AdminRemove(String),
-}
-
-impl Command {
-    // Used as key for the access control map
-    pub fn shortand(&self) -> &str {
-        match self {
-            Self::Help => "help",
-            Self::Bureau => "bureau",
-            Self::Poll => "poll",
-            Self::Authenticate(..) => "auth",
-            Self::AdminList => "adminlist",
-            Self::AdminRemove(..) => "adminremove",
-        }
-    }
-}
-
-async fn help(bot: Bot, msg: Message) -> HandlerResult {
-    bot.send_message(msg.chat.id, Command::descriptions().to_string())
-        .await?;
-    Ok(())
-}
-
-async fn bureau(bot: Bot, msg: Message) -> HandlerResult {
-    bot.send_poll(
-        msg.chat.id,
-        "Qui est au bureau ?",
-        [
-            "Je suis actuellement au bureau".to_owned(),
-            "Je suis à proximité du bureau".to_owned(),
-            "Je compte m'y rendre bientôt".to_owned(),
-            "J'y suis pas".to_owned(),
-            "Je suis à Satellite".to_owned(),
-            "Je suis pas en Suisse".to_owned(),
-        ],
-    )
-    .is_anonymous(false)
-    .await?;
-    Ok(())
-}
-
-async fn authenticate(
-    bot: Bot,
-    msg: Message,
-    command: Command,
-    db: Arc<SqlitePool>,
-) -> HandlerResult {
-    let Command::Authenticate(token, name) = command else {
-        return Ok(()); // Cannot happen because of the dptree::case guard
-    };
-
-    if token == config().admin_token {
-        let id = msg.chat.id.to_string();
-        sqlx::query!(
-            r#"INSERT INTO admins(telegram_id, "name") VALUES($1, $2)"#,
-            id,
-            name
-        )
-        .execute(db.as_ref())
-        .await?;
-        bot.send_message(msg.chat.id, "Authentication successful !")
-            .await?;
-    } else {
-        bot.send_message(msg.chat.id, "Token is incorrect").await?;
-    }
 
     Ok(())
 }

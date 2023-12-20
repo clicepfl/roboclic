@@ -17,16 +17,22 @@ pub fn command_message_handler(
         .branch(
             dptree::entry()
                 .filter_command::<Command>()
-                .chain(require_authorization())
                 .branch(dptree::case![Command::Help].endpoint(help))
-                .branch(dptree::case![Command::Bureau].endpoint(bureau))
-                .branch(dptree::case![Command::Poll].endpoint(poll::start_poll_dialogue))
                 .branch(dptree::case![Command::Authenticate(token, name)].endpoint(authenticate))
-                .branch(require_admin())
-                .chain(
-                    dptree::entry()
-                        .branch(dptree::case![Command::AdminList].endpoint(admin_list))
-                        .branch(dptree::case![Command::AdminRemove(name)].endpoint(admin_remove)),
+                .branch(
+                    require_authorization()
+                        .branch(dptree::case![Command::Bureau].endpoint(bureau))
+                        .branch(dptree::case![Command::Poll].endpoint(poll::start_poll_dialogue)),
+                )
+                .branch(
+                    require_admin().chain(
+                        dptree::entry()
+                            .branch(dptree::case![Command::AdminList].endpoint(admin_list))
+                            .branch(
+                                dptree::case![Command::AdminRemove(name)].endpoint(admin_remove),
+                            )
+                            .branch(dptree::case![Command::Authorize(command)].endpoint(authorize)),
+                    ),
                 ),
         )
         .branch(dptree::case![PollState::SetQuote { message_id, target }].endpoint(poll::set_quote))
@@ -101,10 +107,12 @@ pub enum Command {
         separator = " "
     )]
     Authenticate(String, String),
-    #[command(description = "Liste les admins")]
+    #[command(description = "(Admin) Liste les admins")]
     AdminList,
-    #[command(description = "Supprime un admin à partir de son nom")]
+    #[command(description = "(Admin) Supprime un admin à partir de son nom")]
     AdminRemove(String),
+    #[command(description = "(Admin) Authorise le groupe à utiliser la commande donnée")]
+    Authorize(String),
 }
 
 impl Command {
@@ -117,6 +125,7 @@ impl Command {
             Self::Authenticate(..) => "auth",
             Self::AdminList => "adminlist",
             Self::AdminRemove(..) => "adminremove",
+            Self::Authorize(..) => "authorize",
         }
     }
 }
@@ -233,6 +242,38 @@ async fn admin_remove(
     )
     .await?;
 
+    Ok(())
+}
+
+async fn authorize(bot: Bot, msg: Message, command: String, db: Arc<SqlitePool>) -> HandlerResult {
+    let mut tx = db.begin().await?;
+
+    let chat_id_str = msg.chat.id.to_string();
+    let already_authorized = sqlx::query!(
+        r#"SELECT COUNT(*) AS count FROM authorizations WHERE chat_id = $1 AND command = $2"#,
+        chat_id_str,
+        command
+    )
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    if already_authorized.count == 0 {
+        sqlx::query!(
+            r#"INSERT INTO authorizations(command, chat_id) VALUES($1, $2)"#,
+            command,
+            chat_id_str
+        )
+        .execute(tx.as_mut())
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    bot.send_message(
+        msg.chat.id,
+        format!("Ce groupe peut désormais utiliser la commande /{}", command),
+    )
+    .await?;
     Ok(())
 }
 

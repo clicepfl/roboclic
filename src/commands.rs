@@ -44,24 +44,25 @@ pub fn command_callback_query_handler(
 /// Required dependencies: `teloxide_core::types::message::Message`, `roboclic_v2::commands::Command`
 fn require_authorization() -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription>
 {
-    dptree::entry().filter(|command: Command, msg: Message| {
-        let authorized =
-            if let Some(authorized_chats) = config().access_control.get(command.shortand()) {
-                authorized_chats.contains(&msg.chat.id.0)
-            } else {
-                true
-            };
-
-        if !authorized {
-            log::info!(
-                "Command /{} refused for chat {}",
-                command.shortand(),
-                msg.chat.id
-            );
-        }
-
-        authorized
-    })
+    dptree::entry().filter_async(
+        |command: Command, msg: Message, pool: Arc<SqlitePool>| async move {
+            let chat_id = msg.chat.id.to_string();
+            let shortand = command.shortand();
+            match sqlx::query!(
+                r#"SELECT COUNT(*) AS count FROM authorizations WHERE chat_id = $1 AND command = $2"#,
+                chat_id,
+                shortand
+            )
+            .fetch_one(pool.as_ref())
+            .await {
+                Ok(result) => result.count > 0,
+                Err(e) => {
+                    log::error!("Could not check authorization in database: {:?}", e);
+                    false
+                },
+            }
+        },
+    )
 }
 
 /// Check that the chat is admin

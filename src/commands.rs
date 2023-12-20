@@ -34,6 +34,9 @@ pub fn command_message_handler(
                             .branch(dptree::case![Command::Authorize(command)].endpoint(authorize))
                             .branch(
                                 dptree::case![Command::Unauthorize(command)].endpoint(unauthorize),
+                            )
+                            .branch(
+                                dptree::case![Command::Authorizations].endpoint(authorizations),
                             ),
                     ),
                 ),
@@ -120,6 +123,8 @@ pub enum Command {
         description = "(Admin) Révoque l'authorisation du groupe à utiliser la commande donnée"
     )]
     Unauthorize(String),
+    #[command(description = "(Admin) Liste les commandes que ce groupe peut utiliser")]
+    Authorizations,
 }
 
 impl Command {
@@ -134,6 +139,7 @@ impl Command {
             Self::AdminRemove(..) => "adminremove",
             Self::Authorize(..) => "authorize",
             Self::Unauthorize(..) => "unauthorize",
+            Self::Authorizations => "authorizations",
         }
     }
 }
@@ -322,6 +328,31 @@ async fn unauthorize(
         ),
     )
     .await?;
+    Ok(())
+}
+
+async fn authorizations(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResult {
+    let chat_id_str = msg.chat.id.to_string();
+    let authorizations = sqlx::query!(
+        r#"SELECT command FROM authorizations WHERE chat_id = $1"#,
+        chat_id_str
+    )
+    .fetch_all(db.as_ref())
+    .await?;
+
+    bot.send_message(
+        msg.chat.id,
+        format!(
+            "Ce groupe peut utiliser les commandes suivantes:\n{}",
+            authorizations
+                .into_iter()
+                .map(|s| format!(" - {}", s.command))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+    )
+    .await?;
+
     Ok(())
 }
 

@@ -31,7 +31,10 @@ pub fn command_message_handler(
                             .branch(
                                 dptree::case![Command::AdminRemove(name)].endpoint(admin_remove),
                             )
-                            .branch(dptree::case![Command::Authorize(command)].endpoint(authorize)),
+                            .branch(dptree::case![Command::Authorize(command)].endpoint(authorize))
+                            .branch(
+                                dptree::case![Command::Unauthorize(command)].endpoint(unauthorize),
+                            ),
                     ),
                 ),
         )
@@ -113,6 +116,10 @@ pub enum Command {
     AdminRemove(String),
     #[command(description = "(Admin) Authorise le groupe à utiliser la commande donnée")]
     Authorize(String),
+    #[command(
+        description = "(Admin) Révoque l'authorisation du groupe à utiliser la commande donnée"
+    )]
+    Unauthorize(String),
 }
 
 impl Command {
@@ -126,6 +133,7 @@ impl Command {
             Self::AdminList => "adminlist",
             Self::AdminRemove(..) => "adminremove",
             Self::Authorize(..) => "authorize",
+            Self::Unauthorize(..) => "unauthorize",
         }
     }
 }
@@ -272,6 +280,46 @@ async fn authorize(bot: Bot, msg: Message, command: String, db: Arc<SqlitePool>)
     bot.send_message(
         msg.chat.id,
         format!("Ce groupe peut désormais utiliser la commande /{}", command),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn unauthorize(
+    bot: Bot,
+    msg: Message,
+    command: String,
+    db: Arc<SqlitePool>,
+) -> HandlerResult {
+    let mut tx = db.begin().await?;
+
+    let chat_id_str = msg.chat.id.to_string();
+    let already_authorized = sqlx::query!(
+        r#"SELECT COUNT(*) AS count FROM authorizations WHERE chat_id = $1 AND command = $2"#,
+        chat_id_str,
+        command
+    )
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    if already_authorized.count > 0 {
+        sqlx::query!(
+            r#"DELETE FROM authorizations WHERE command = $1 AND chat_id = $2"#,
+            command,
+            chat_id_str
+        )
+        .execute(tx.as_mut())
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    bot.send_message(
+        msg.chat.id,
+        format!(
+            "Ce groupe ne peut désormais plus utiliser la commande /{}",
+            command
+        ),
     )
     .await?;
     Ok(())

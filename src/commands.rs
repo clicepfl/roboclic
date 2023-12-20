@@ -173,13 +173,9 @@ async fn bureau(bot: Bot, msg: Message) -> HandlerResult {
 async fn authenticate(
     bot: Bot,
     msg: Message,
-    command: Command,
+    (token, name): (String, String),
     db: Arc<SqlitePool>,
 ) -> HandlerResult {
-    let Command::Authenticate(token, name) = command else {
-        return Ok(()); // Cannot happen because of the dptree::case guard
-    };
-
     if token == config().admin_token {
         let id = msg.chat.id.to_string();
         sqlx::query!(
@@ -189,10 +185,11 @@ async fn authenticate(
         )
         .execute(db.as_ref())
         .await?;
-        bot.send_message(msg.chat.id, "Authentication successful !")
+        bot.send_message(msg.chat.id, "Authentification réussie !")
             .await?;
     } else {
-        bot.send_message(msg.chat.id, "Token is incorrect").await?;
+        bot.send_message(msg.chat.id, "Le token est incorrect")
+            .await?;
     }
 
     Ok(())
@@ -206,7 +203,7 @@ async fn admin_list(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResul
     bot.send_message(
         msg.chat.id,
         format!(
-            "Current admin(s):\n{}",
+            "Admin(s) actuel(s):\n{}",
             admins
                 .into_iter()
                 .map(|r| format!(" - {}", r.name))
@@ -219,42 +216,27 @@ async fn admin_list(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResul
     Ok(())
 }
 
-async fn admin_remove(
-    bot: Bot,
-    msg: Message,
-    command: Command,
-    db: Arc<SqlitePool>,
-) -> HandlerResult {
-    let Command::AdminRemove(target) = command else {
-        return Ok(()); // Cannot happen because of the guard
-    };
-
+async fn admin_remove(bot: Bot, msg: Message, name: String, db: Arc<SqlitePool>) -> HandlerResult {
     let mut tx = db.begin().await?;
 
-    if sqlx::query!(
-        "SELECT COUNT(*) AS count FROM admins WHERE name = $1",
-        target
-    )
-    .fetch_one(tx.as_mut())
-    .await?
-    .count
+    if sqlx::query!("SELECT COUNT(*) AS count FROM admins WHERE name = $1", name)
+        .fetch_one(tx.as_mut())
+        .await?
+        .count
         == 0
     {
-        bot.send_message(msg.chat.id, format!("{} is not an admin", target))
+        bot.send_message(msg.chat.id, format!("{} n'est pas admin", name))
             .await?;
         return Ok(());
     }
 
-    sqlx::query!("DELETE FROM admins WHERE name = $1", target)
+    sqlx::query!("DELETE FROM admins WHERE name = $1", name)
         .execute(tx.as_mut())
         .await?;
     tx.commit().await?;
 
-    bot.send_message(
-        msg.chat.id,
-        format!("{} successfully removed from admins", target),
-    )
-    .await?;
+    bot.send_message(msg.chat.id, format!("{} a été retiré(e) des admins", name))
+        .await?;
 
     Ok(())
 }

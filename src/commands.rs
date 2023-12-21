@@ -22,7 +22,8 @@ pub fn command_message_handler(
                 .branch(
                     require_authorization()
                         .branch(dptree::case![Command::Bureau].endpoint(bureau))
-                        .branch(dptree::case![Command::Poll].endpoint(poll::start_poll_dialogue)),
+                        .branch(dptree::case![Command::Poll].endpoint(poll::start_poll_dialogue))
+                        .branch(dptree::case![Command::Stats].endpoint(stats)),
                 )
                 .branch(
                     require_admin().chain(
@@ -36,7 +37,6 @@ pub fn command_message_handler(
                                 dptree::case![Command::Unauthorize(command)].endpoint(unauthorize),
                             )
                             .branch(dptree::case![Command::Authorizations].endpoint(authorizations))
-                            .branch(dptree::case![Command::Stats].endpoint(stats))
                             .branch(
                                 dptree::case![Command::CommitteeAdd(names)].endpoint(committee_add),
                             )
@@ -362,13 +362,7 @@ async fn stats(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResult {
         msg.chat.id,
         committee
             .into_iter()
-            .map(|c| {
-                format!(
-                    " - {} (polls: {})",
-                    c.name.unwrap_or_default(),
-                    c.poll_count
-                )
-            })
+            .map(|c| format!("- {} (polls: {})", c.name.unwrap_or_default(), c.poll_count))
             .collect::<Vec<_>>()
             .join("\n"),
     )

@@ -36,6 +36,7 @@ pub fn command_message_handler(
                                 dptree::case![Command::Unauthorize(command)].endpoint(unauthorize),
                             )
                             .branch(dptree::case![Command::Authorizations].endpoint(authorizations))
+                            .branch(dptree::case![Command::Stats].endpoint(stats))
                             .branch(
                                 dptree::case![Command::CommitteeAdd(names)].endpoint(committee_add),
                             ),
@@ -126,6 +127,8 @@ pub enum Command {
     Unauthorize(String),
     #[command(description = "(Admin) Liste les commandes que ce groupe peut utiliser")]
     Authorizations,
+    #[command(description = "(Admin) Affiche les stats des membres du comité")]
+    Stats,
     #[command(description = "(Admin) Ajoute des personnes au comité")]
     CommitteeAdd(String),
 }
@@ -143,6 +146,7 @@ impl Command {
             Self::Authorize(..) => "authorize",
             Self::Unauthorize(..) => "unauthorize",
             Self::Authorizations => "authorizations",
+            Self::Stats => "stats",
             Self::CommitteeAdd(..) => "comitteeadd",
         }
     }
@@ -359,6 +363,30 @@ async fn committee_add(
     tx.commit().await?;
 
     bot.send_message(msg.chat.id, "Comité mis à jour !").await?;
+
+    Ok(())
+}
+
+async fn stats(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResult {
+    let committee = sqlx::query!(r#"SELECT * FROM committee"#)
+        .fetch_all(db.as_ref())
+        .await?;
+
+    bot.send_message(
+        msg.chat.id,
+        committee
+            .into_iter()
+            .map(|c| {
+                format!(
+                    " - {} (polls: {})",
+                    c.name.unwrap_or_default(),
+                    c.poll_count
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+    .await?;
 
     Ok(())
 }

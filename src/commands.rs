@@ -35,8 +35,9 @@ pub fn command_message_handler(
                             .branch(
                                 dptree::case![Command::Unauthorize(command)].endpoint(unauthorize),
                             )
+                            .branch(dptree::case![Command::Authorizations].endpoint(authorizations))
                             .branch(
-                                dptree::case![Command::Authorizations].endpoint(authorizations),
+                                dptree::case![Command::CommitteeAdd(names)].endpoint(committee_add),
                             ),
                     ),
                 ),
@@ -125,6 +126,8 @@ pub enum Command {
     Unauthorize(String),
     #[command(description = "(Admin) Liste les commandes que ce groupe peut utiliser")]
     Authorizations,
+    #[command(description = "(Admin) Ajoute des personnes au comité")]
+    CommitteeAdd(String),
 }
 
 impl Command {
@@ -140,6 +143,7 @@ impl Command {
             Self::Authorize(..) => "authorize",
             Self::Unauthorize(..) => "unauthorize",
             Self::Authorizations => "authorizations",
+            Self::CommitteeAdd(..) => "comitteeadd",
         }
     }
 }
@@ -334,6 +338,27 @@ async fn authorizations(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerR
         ),
     )
     .await?;
+
+    Ok(())
+}
+
+async fn committee_add(
+    bot: Bot,
+    msg: Message,
+    db: Arc<SqlitePool>,
+    names: String,
+) -> HandlerResult {
+    let mut tx = db.begin().await?;
+
+    for name in names.split(' ') {
+        sqlx::query!(r#"INSERT INTO committee(name) VALUES($1)"#, name)
+            .execute(tx.as_mut())
+            .await?;
+    }
+
+    tx.commit().await?;
+
+    bot.send_message(msg.chat.id, "Comité mis à jour !").await?;
 
     Ok(())
 }

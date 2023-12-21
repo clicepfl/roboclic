@@ -1,8 +1,5 @@
 CREATE TABLE committee(
-    id SERIAL PRIMARY KEY,
-    first_name VARCHAR(50) NOT NULL,
-    surname VARCHAR(50) NOT NULL,
-    telegram_id VARCHAR(50),
+    name VARCHAR(50) PRIMARY KEY,
     poll_count INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE admins(

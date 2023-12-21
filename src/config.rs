@@ -10,7 +10,7 @@ pub struct Config {
     #[envconfig(from = "DATA_DIR")]
     pub data_dir: String,
     #[envconfig(from = "DATABASE_URL")]
-    pub database_url: String,
+    pub database_url: Option<String>,
     #[envconfig(from = "ADMIN_TOKEN")]
     pub admin_token: String,
 }

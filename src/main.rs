@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use config::config;
 use sqlx::{migrate::MigrateDatabase, SqlitePool};
 use teloxide::{
     dispatching::dialogue::{self, InMemStorage},
@@ -17,18 +18,16 @@ mod config;
 pub type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 async fn init_db() -> SqlitePool {
-    if !sqlx::Sqlite::database_exists(&config::config().database_url)
-        .await
-        .unwrap()
-    {
-        sqlx::Sqlite::create_database(&config::config().database_url)
-            .await
-            .unwrap();
+    let database_url = config()
+        .database_url
+        .clone()
+        .unwrap_or_else(|| format!("sqlite://{}/db.sqlite", config::config().data_dir));
+
+    if !sqlx::Sqlite::database_exists(&database_url).await.unwrap() {
+        sqlx::Sqlite::create_database(&database_url).await.unwrap();
     }
 
-    let database = SqlitePool::connect(&config::config().database_url)
-        .await
-        .unwrap();
+    let database = SqlitePool::connect(&database_url).await.unwrap();
     sqlx::migrate!().run(&database).await.unwrap();
 
     database

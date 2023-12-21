@@ -39,6 +39,10 @@ pub fn command_message_handler(
                             .branch(dptree::case![Command::Stats].endpoint(stats))
                             .branch(
                                 dptree::case![Command::CommitteeAdd(names)].endpoint(committee_add),
+                            )
+                            .branch(
+                                dptree::case![Command::CommitteeRemove(names)]
+                                    .endpoint(committee_remove),
                             ),
                     ),
                 ),
@@ -131,6 +135,8 @@ pub enum Command {
     Stats,
     #[command(description = "(Admin) Ajoute des personnes au comité")]
     CommitteeAdd(String),
+    #[command(description = "(Admin) Retire des personnes du comité")]
+    CommitteeRemove(String),
 }
 
 impl Command {
@@ -148,6 +154,7 @@ impl Command {
             Self::Authorizations => "authorizations",
             Self::Stats => "stats",
             Self::CommitteeAdd(..) => "comitteeadd",
+            Self::CommitteeRemove(..) => "comitteeremove",
         }
     }
 }
@@ -346,6 +353,30 @@ async fn authorizations(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerR
     Ok(())
 }
 
+async fn stats(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResult {
+    let committee = sqlx::query!(r#"SELECT * FROM committee"#)
+        .fetch_all(db.as_ref())
+        .await?;
+
+    bot.send_message(
+        msg.chat.id,
+        committee
+            .into_iter()
+            .map(|c| {
+                format!(
+                    " - {} (polls: {})",
+                    c.name.unwrap_or_default(),
+                    c.poll_count
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+    .await?;
+
+    Ok(())
+}
+
 async fn committee_add(
     bot: Bot,
     msg: Message,
@@ -367,26 +398,23 @@ async fn committee_add(
     Ok(())
 }
 
-async fn stats(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResult {
-    let committee = sqlx::query!(r#"SELECT * FROM committee"#)
-        .fetch_all(db.as_ref())
-        .await?;
+async fn committee_remove(
+    bot: Bot,
+    msg: Message,
+    db: Arc<SqlitePool>,
+    names: String,
+) -> HandlerResult {
+    let mut tx = db.begin().await?;
 
-    bot.send_message(
-        msg.chat.id,
-        committee
-            .into_iter()
-            .map(|c| {
-                format!(
-                    " - {} (polls: {})",
-                    c.name.unwrap_or_default(),
-                    c.poll_count
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-    )
-    .await?;
+    for name in names.split(' ') {
+        sqlx::query!(r#"DELETE FROM committee WHERE name = $1"#, name)
+            .execute(tx.as_mut())
+            .await?;
+    }
+
+    tx.commit().await?;
+
+    bot.send_message(msg.chat.id, "Comité mis à jour !").await?;
 
     Ok(())
 }

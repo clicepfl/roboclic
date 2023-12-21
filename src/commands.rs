@@ -414,8 +414,11 @@ async fn committee_remove(
 }
 
 mod poll {
+    use std::sync::Arc;
+
     use crate::commands::POLL_MAX_OPTIONS_COUNT;
     use rand::{seq::SliceRandom, thread_rng, Rng};
+    use sqlx::SqlitePool;
     use teloxide::{
         dispatching::dialogue::{GetChatId, InMemStorage},
         payloads::{SendMessageSetters, SendPollSetters},
@@ -428,7 +431,7 @@ mod poll {
         Bot,
     };
 
-    use crate::{config::config, HandlerResult};
+    use crate::HandlerResult;
 
     #[derive(Default, Clone, Debug)]
     pub enum PollState {
@@ -453,23 +456,29 @@ mod poll {
         bot: Bot,
         msg: Message,
         dialogue: PollDialogue,
+        db: Arc<SqlitePool>,
     ) -> HandlerResult {
         log::info!("Starting /poll dialogue");
 
         log::debug!("Removing /poll message");
         bot.delete_message(msg.chat.id, msg.id).await?;
 
+        let committee = sqlx::query!(r#"SELECT name FROM committee"#)
+            .fetch_all(db.as_ref())
+            .await?;
+
         log::debug!("Sending message with inline keyboard for callback");
         let msg = bot
             .send_message(msg.chat.id, "Qui l'a dit ?")
             .reply_markup(ReplyMarkup::InlineKeyboard(InlineKeyboardMarkup::new(
-                config()
-                    .committee
-                    .iter()
+                committee
+                    .into_iter()
                     .map(|s| {
                         InlineKeyboardButton::new(
-                            s,
-                            teloxide::types::InlineKeyboardButtonKind::CallbackData(s.to_owned()),
+                            s.name.clone().unwrap_or_default(),
+                            teloxide::types::InlineKeyboardButtonKind::CallbackData(
+                                s.name.unwrap_or_default(),
+                            ),
                         )
                     })
                     .fold(vec![], |mut vec: Vec<Vec<InlineKeyboardButton>>, value| {
@@ -526,6 +535,7 @@ mod poll {
         bot: Bot,
         msg: Message,
         dialogue: PollDialogue,
+        db: Arc<SqlitePool>,
         (message_id, target): (MessageId, String),
     ) -> HandlerResult {
         if let Some(text) = msg.text() {
@@ -534,13 +544,23 @@ mod poll {
             log::debug!("Removing quote message");
             bot.delete_message(dialogue.chat_id(), msg.id).await?;
 
+            let mut poll = sqlx::query!(r#"SELECT name FROM committee"#)
+                .fetch_all(db.as_ref())
+                .await?
+                .into_iter()
+                .map(|r| r.name.unwrap_or_default())
+                .collect::<Vec<_>>();
+
             // Splits the committee to have only 10 answers possible.
-            let mut poll = config().committee.clone();
             poll.retain(|s| -> bool { *s != target }); // filter the target from options
             poll.shuffle(&mut thread_rng()); // shuffle the options
             let index = thread_rng().gen_range(0..(POLL_MAX_OPTIONS_COUNT - 1)); // generate a valid index to insert target back
             poll.insert(index as usize, target.clone()); // insert target back in options
-            let poll = poll.split_at(POLL_MAX_OPTIONS_COUNT as usize).0.to_vec(); // split options to have only 10 options
+
+            if poll.len() > POLL_MAX_OPTIONS_COUNT as usize {
+                // split options to have only 10 options
+                poll = poll.split_at(POLL_MAX_OPTIONS_COUNT as usize).0.to_vec();
+            }
 
             log::debug!("Sending poll");
             bot.send_poll(
@@ -551,6 +571,13 @@ mod poll {
             .type_(teloxide::types::PollType::Quiz)
             .is_anonymous(false)
             .correct_option_id(index)
+            .await?;
+
+            sqlx::query!(
+                "UPDATE committee SET poll_count = poll_count + 1 WHERE name = $1",
+                target
+            )
+            .execute(db.as_ref())
             .await?;
 
             log::debug!("Resetting dialogue status");

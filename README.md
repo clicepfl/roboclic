@@ -4,41 +4,28 @@ The Telegram bot of the [CLIC](https://clic.epfl.ch), cleaned up and in Rust.
 
 The available commands are:
 
-- `/bureau`: Creates a poll querying who is at the desk (in INN132)
-- `/poll`: Creates a quiz where you need to find the committee behind a quote
-- `/help`: Displays a help message
+- `/help`: Displays a help message.
+- `/authenticate <token> <name>`: Authenticate as an admin user using the `ADMIN_TOKEN` provided in the environment variables and a name (can be any).
+- Group restricted commands:
+  - `/bureau`: Creates a poll querying who is at the desk (in INN132).
+  - `/poll`: Creates a quiz where you need to find the committee behind a quote.
+  - `/stats`: Display the stats of the committee (number of polls).
+- Admin restricted commands:
+  - `/adminlist`: List the admins.
+  - `/adminremove <name>`: Remove an admin.
+  - `/authorize <command>`: Authorize the current chat to use the given command (must be one of the command from the list above).
+  - `/unauthorize <command>`: Unauthorize the current chat to use the given command (must be one of the command from the list above).
+  - `/committeeadd <names>`: Add a list of persons to the committee. `<names>` must be a space-separated list.
+  - `/committeeremove <names>`: Remove a list of persons from the committee. `<names>` must be a space-separated list.
 
-## Setup
-
-The bot is configured through a combination of two ways: environment variables, and a config file in json. Environment variables holds sensitive data, like the bot's token, while the file contains basic informations, like the list of the committee, or access control settings.
-
-Any changes of the configuration requires a restart.
+## Configuration
 
 ### Environment
 
 - `BOT_TOKEN`: The token provided by [@BotFather](https://t.me/BotFather) to authenticate the bot in API calls.
-- `CONFIG_FILE`: The location of the config file (see below)
-
-### Configuration file
-
-Written in JSON. Contains a dictionnary with the following entries:
-
-- `"committee": Vec<String>`: An array of string of the names of each members of the committee.
-- `"access_control": HashMap<String, Vec<i64>>`: A mapping specifying which chat can trigger which command. The keys are the commands in lowercase (see above), and the value a list of authorized chat ids.
-
-  **Important**: An empty list means that no chat is allowed to trigger a command, while an absent key allows every chat to use it.
-
-Example:
-
-```json
-{
-  "committee": ["Committee 1", "Committee 2", "Committee 3", "Committee 4"],
-  "access_control": {
-    "bureau": [1234567890],
-    "poll": [9876543210]
-  }
-}
-```
+- `ADMIN_TOKEN`: The token used to authenticate admin users.
+- `DATA_DIR`: The directory where the bot will read/write data
+- `DATABASE_URL` (optional): The url of the SQLite database. Defaults to `sqlite://${DATA_DIR}/db.sqlite`.
 
 ## Deployment
 

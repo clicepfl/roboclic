@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT \"name\" FROM admins",
+  "describe": {
+    "columns": [
+      {
+        "name": "name",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b8fbfdf3e535d4f03512aa2785fbd3001119c3e6899e6e6a8f0d550b82e947f3"
+}

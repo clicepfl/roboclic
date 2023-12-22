@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM authorizations WHERE command = $1 AND chat_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "6b10cc834689b641cf53093f3c55a65d4ac345afdd7cde9e4e5f3e8df38828ca"
+}

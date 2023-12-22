@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO authorizations(command, chat_id) VALUES($1, $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "7a8d8daff0922ac88b2415c3544db88c36ee951c7bcaef5e3559e71ffe4b4a1a"
+}

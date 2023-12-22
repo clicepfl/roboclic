@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO committee(name) VALUES($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "af4ddce9ab335303494ad6a0f7f9efbd66b1754ffd957a23610b1323dbaa6f0d"
+}

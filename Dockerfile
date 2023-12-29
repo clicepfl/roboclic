@@ -14,6 +14,8 @@ COPY Cargo.toml Cargo.lock ./
 RUN cargo build-deps --release
 # Add and build project
 COPY src ./src
+COPY migrations ./migrations
+COPY .sqlx ./.sqlx
 RUN cargo build --release
 
 # Copies build result into runtime image

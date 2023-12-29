@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM committee WHERE name = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "d32dd5b9da3258a0f3d45565c7f6550b1fdbd9f32fb0e313964e5058dc1a10b8"
+}

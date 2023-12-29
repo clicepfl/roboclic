@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COUNT(*) AS is_admin FROM admins WHERE telegram_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "is_admin",
+        "ordinal": 0,
+        "type_info": "Int"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7874229e8e02adb495803eb502eb75992cece0ab04c61f9242e36be7d39a26f1"
+}

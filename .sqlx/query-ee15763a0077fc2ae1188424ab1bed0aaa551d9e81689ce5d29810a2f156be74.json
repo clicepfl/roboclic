@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT command FROM authorizations WHERE chat_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "name": "command",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ee15763a0077fc2ae1188424ab1bed0aaa551d9e81689ce5d29810a2f156be74"
+}

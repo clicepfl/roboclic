@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO admins(telegram_id, \"name\") VALUES($1, $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "ea892c32b58350e33618929f76221bfb4cec64041e6109788851741e140ac38e"
+}

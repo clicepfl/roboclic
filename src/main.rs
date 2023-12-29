@@ -1,15 +1,37 @@
+use std::sync::Arc;
+
+use config::config;
+use sqlx::{migrate::MigrateDatabase, SqlitePool};
 use teloxide::{
     dispatching::dialogue::{self, InMemStorage},
     prelude::*,
     utils::command::BotCommands,
 };
 
-use crate::commands::{command_callback_query_handler, command_message_handler, Command, PollState};
+use crate::commands::{
+    command_callback_query_handler, command_message_handler, Command, PollState,
+};
 
 mod commands;
 mod config;
 
 pub type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+async fn init_db() -> SqlitePool {
+    let database_url = config()
+        .database_url
+        .clone()
+        .unwrap_or_else(|| format!("sqlite://{}/db.sqlite", config::config().data_dir));
+
+    if !sqlx::Sqlite::database_exists(&database_url).await.unwrap() {
+        sqlx::Sqlite::create_database(&database_url).await.unwrap();
+    }
+
+    let database = SqlitePool::connect(&database_url).await.unwrap();
+    sqlx::migrate!().run(&database).await.unwrap();
+
+    database
+}
 
 #[tokio::main]
 async fn main() {
@@ -17,6 +39,8 @@ async fn main() {
 
     log::info!("Loading config files");
     config::config();
+    let database = init_db().await;
+
     let bot = Bot::new(config::config().bot_token.clone());
     bot.set_my_commands(Command::bot_commands()).await.unwrap();
 
@@ -34,7 +58,10 @@ async fn main() {
     .error_handler(LoggingErrorHandler::with_custom_text(
         "An error has occurred in the dispatcher",
     ))
-    .dependencies(dptree::deps![InMemStorage::<PollState>::new()])
+    .dependencies(dptree::deps![
+        InMemStorage::<PollState>::new(),
+        Arc::new(database)
+    ])
     .enable_ctrlc_handler()
     .build();
 

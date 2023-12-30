@@ -5,8 +5,6 @@ use std::sync::OnceLock;
 pub struct Config {
     #[envconfig(from = "BOT_TOKEN")]
     pub bot_token: String,
-    #[envconfig(from = "CONFIG_FILE")]
-    pub config_file: String,
     #[envconfig(from = "DATA_DIR")]
     pub data_dir: String,
     #[envconfig(from = "DATABASE_URL")]

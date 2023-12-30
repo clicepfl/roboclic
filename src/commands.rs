@@ -2,7 +2,11 @@ use std::sync::Arc;
 
 use sqlx::SqlitePool;
 use teloxide::{
-    dispatching::DpHandlerDescription, prelude::*, types::Message, utils::command::BotCommands, Bot,
+    dispatching::DpHandlerDescription,
+    prelude::*,
+    types::{Message, MessageCommon, MessageKind},
+    utils::command::BotCommands,
+    Bot,
 };
 
 use crate::{config::config, HandlerResult};
@@ -88,7 +92,14 @@ fn require_authorization() -> Endpoint<'static, DependencyMap, HandlerResult, Dp
 /// Required dependencies: `teloxide_core::types::message::Message`, `sqlx_sqlite::SqlitePool`
 fn require_admin() -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
     dptree::entry().filter_async(|msg: Message, db: Arc<SqlitePool>| async move {
-        let id = msg.chat.id.to_string();
+        let MessageKind::Common(MessageCommon {
+            from: Some(user), ..
+        }) = msg.kind
+        else {
+            return false;
+        };
+
+        let id = user.id.to_string();
         sqlx::query!(
             "SELECT COUNT(*) AS is_admin FROM admins WHERE telegram_id = $1",
             id

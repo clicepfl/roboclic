@@ -365,14 +365,17 @@ async fn authorizations(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerR
 }
 
 async fn stats(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResult {
-    let committee = sqlx::query!(r#"SELECT * FROM committee"#)
+    let mut committee = sqlx::query!(r#"SELECT * FROM committee"#)
         .fetch_all(db.as_ref())
         .await?;
+
+    committee.sort_by_key(|r| r.poll_count);
 
     bot.send_message(
         msg.chat.id,
         committee
             .into_iter()
+            .rev()
             .map(|c| format!("- {} (polls: {})", c.name.unwrap_or_default(), c.poll_count))
             .collect::<Vec<_>>()
             .join("\n"),

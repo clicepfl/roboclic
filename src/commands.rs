@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use log::error;
 use sqlx::SqlitePool;
 use teloxide::{
     dispatching::DpHandlerDescription,
@@ -9,7 +10,7 @@ use teloxide::{
     Bot,
 };
 
-use crate::{config::config, HandlerResult};
+use crate::{config::config, directus::get_committee, HandlerResult};
 
 pub use self::poll::PollState;
 
@@ -40,13 +41,8 @@ pub fn command_message_handler(
                             .branch(
                                 dptree::case![Command::Unauthorize(command)].endpoint(unauthorize),
                             )
-                            .branch(dptree::case![Command::Authorizations].endpoint(authorizations))
                             .branch(
-                                dptree::case![Command::CommitteeAdd(names)].endpoint(committee_add),
-                            )
-                            .branch(
-                                dptree::case![Command::CommitteeRemove(names)]
-                                    .endpoint(committee_remove),
+                                dptree::case![Command::Authorizations].endpoint(authorizations),
                             ),
                     ),
                 ),
@@ -144,10 +140,6 @@ pub enum Command {
     Authorizations,
     #[command(description = "(Admin) Affiche les stats des membres du comité")]
     Stats,
-    #[command(description = "(Admin) Ajoute des personnes au comité")]
-    CommitteeAdd(String),
-    #[command(description = "(Admin) Retire des personnes du comité")]
-    CommitteeRemove(String),
 }
 
 impl Command {
@@ -164,8 +156,6 @@ impl Command {
             Self::Unauthorize(..) => "unauthorize",
             Self::Authorizations => "authorizations",
             Self::Stats => "stats",
-            Self::CommitteeAdd(..) => "comitteeadd",
-            Self::CommitteeRemove(..) => "comitteeremove",
         }
     }
 }
@@ -364,10 +354,14 @@ async fn authorizations(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerR
     Ok(())
 }
 
-async fn stats(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResult {
-    let mut committee = sqlx::query!(r#"SELECT * FROM committee"#)
-        .fetch_all(db.as_ref())
-        .await?;
+async fn stats(bot: Bot, msg: Message) -> HandlerResult {
+    let mut committee = match get_committee().await {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Could not fetch committee: {e:#?}");
+            return Ok(());
+        }
+    };
 
     committee.sort_by_key(|r| r.poll_count);
 
@@ -376,7 +370,7 @@ async fn stats(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResult {
         committee
             .into_iter()
             .rev()
-            .map(|c| format!("- {} (polls: {})", c.name.unwrap_or_default(), c.poll_count))
+            .map(|c| format!("- {} (polls: {})", c.name, c.poll_count))
             .collect::<Vec<_>>()
             .join("\n"),
     )
@@ -385,54 +379,13 @@ async fn stats(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResult {
     Ok(())
 }
 
-async fn committee_add(
-    bot: Bot,
-    msg: Message,
-    db: Arc<SqlitePool>,
-    names: String,
-) -> HandlerResult {
-    let mut tx = db.begin().await?;
-
-    for name in names.split(' ') {
-        sqlx::query!(r#"INSERT INTO committee(name) VALUES($1)"#, name)
-            .execute(tx.as_mut())
-            .await?;
-    }
-
-    tx.commit().await?;
-
-    bot.send_message(msg.chat.id, "Comité mis à jour !").await?;
-
-    Ok(())
-}
-
-async fn committee_remove(
-    bot: Bot,
-    msg: Message,
-    db: Arc<SqlitePool>,
-    names: String,
-) -> HandlerResult {
-    let mut tx = db.begin().await?;
-
-    for name in names.split(' ') {
-        sqlx::query!(r#"DELETE FROM committee WHERE name = $1"#, name)
-            .execute(tx.as_mut())
-            .await?;
-    }
-
-    tx.commit().await?;
-
-    bot.send_message(msg.chat.id, "Comité mis à jour !").await?;
-
-    Ok(())
-}
-
 mod poll {
-    use std::sync::Arc;
-
-    use crate::commands::POLL_MAX_OPTIONS_COUNT;
+    use crate::{
+        commands::POLL_MAX_OPTIONS_COUNT,
+        directus::{get_committee, update_committee, Committee},
+    };
+    use log::error;
     use rand::{seq::SliceRandom, thread_rng, Rng};
-    use sqlx::SqlitePool;
     use teloxide::{
         dispatching::dialogue::{GetChatId, InMemStorage},
         payloads::{SendMessageSetters, SendPollSetters},
@@ -470,16 +423,19 @@ mod poll {
         bot: Bot,
         msg: Message,
         dialogue: PollDialogue,
-        db: Arc<SqlitePool>,
     ) -> HandlerResult {
         log::info!("Starting /poll dialogue");
 
         log::debug!("Removing /poll message");
         bot.delete_message(msg.chat.id, msg.id).await?;
 
-        let committee = sqlx::query!(r#"SELECT name FROM committee"#)
-            .fetch_all(db.as_ref())
-            .await?;
+        let committee = match get_committee().await {
+            Ok(v) => v,
+            Err(e) => {
+                error!("Could not fetch committee: {e:#?}");
+                return Ok(());
+            }
+        };
 
         log::debug!("Sending message with inline keyboard for callback");
         let msg = bot
@@ -489,10 +445,8 @@ mod poll {
                     .into_iter()
                     .map(|s| {
                         InlineKeyboardButton::new(
-                            s.name.clone().unwrap_or_default(),
-                            teloxide::types::InlineKeyboardButtonKind::CallbackData(
-                                s.name.unwrap_or_default(),
-                            ),
+                            s.name.clone(),
+                            teloxide::types::InlineKeyboardButtonKind::CallbackData(s.name),
                         )
                     })
                     .fold(vec![], |mut vec: Vec<Vec<InlineKeyboardButton>>, value| {
@@ -549,7 +503,6 @@ mod poll {
         bot: Bot,
         msg: Message,
         dialogue: PollDialogue,
-        db: Arc<SqlitePool>,
         (message_id, target): (MessageId, String),
     ) -> HandlerResult {
         if let Some(text) = msg.text() {
@@ -558,12 +511,15 @@ mod poll {
             log::debug!("Removing quote message");
             bot.delete_message(dialogue.chat_id(), msg.id).await?;
 
-            let mut poll = sqlx::query!(r#"SELECT name FROM committee"#)
-                .fetch_all(db.as_ref())
-                .await?
-                .into_iter()
-                .map(|r| r.name.unwrap_or_default())
-                .collect::<Vec<_>>();
+            let committee = match get_committee().await {
+                Ok(v) => v,
+                Err(e) => {
+                    error!("Could not fetch committee: {e:#?}");
+                    return Ok(());
+                }
+            };
+
+            let mut poll = committee.iter().map(|c| c.name.clone()).collect::<Vec<_>>();
 
             // Splits the committee to have only 10 answers possible.
             poll.retain(|s| -> bool { *s != target }); // filter the target from options
@@ -587,12 +543,22 @@ mod poll {
             .correct_option_id(index)
             .await?;
 
-            sqlx::query!(
-                "UPDATE committee SET poll_count = poll_count + 1 WHERE name = $1",
-                target
+            update_committee(
+                committee
+                    .into_iter()
+                    .map(|c| {
+                        if c.name == target {
+                            Committee {
+                                poll_count: c.poll_count + 1,
+                                ..c
+                            }
+                        } else {
+                            c
+                        }
+                    })
+                    .collect(),
             )
-            .execute(db.as_ref())
-            .await?;
+            .await;
 
             log::debug!("Resetting dialogue status");
             dialogue.update(PollState::Start).await?;

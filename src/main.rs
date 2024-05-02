@@ -8,12 +8,14 @@ use teloxide::{
     utils::command::BotCommands,
 };
 
-use crate::commands::{
-    command_callback_query_handler, command_message_handler, Command, PollState,
+use crate::{
+    commands::{command_callback_query_handler, command_message_handler, Command, PollState},
+    directus::{update_committee, Committee},
 };
 
 mod commands;
 mod config;
+mod directus;
 
 pub type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
@@ -36,6 +38,12 @@ async fn init_db() -> SqlitePool {
 #[tokio::main]
 async fn main() {
     pretty_env_logger::init();
+
+    update_committee(vec![Committee {
+        id: 1,
+        name: "".into(),
+        poll_count: 15,
+    }]).await;
 
     log::info!("Loading config files");
     config::config();

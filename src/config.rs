@@ -11,6 +11,10 @@ pub struct Config {
     pub database_url: Option<String>,
     #[envconfig(from = "ADMIN_TOKEN")]
     pub admin_token: String,
+    #[envconfig(from = "DIRECTUS_URL")]
+    pub directus_url: String,
+    #[envconfig(from = "DIRECTUS_TOKEN")]
+    pub directus_token: String,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();

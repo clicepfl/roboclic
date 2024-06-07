@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use log::error;
 use sqlx::SqlitePool;
 use teloxide::{
     dispatching::DpHandlerDescription,
@@ -10,11 +9,19 @@ use teloxide::{
     Bot,
 };
 
-use crate::{config::config, directus::get_committee, HandlerResult};
-
-pub use self::poll::PollState;
-
-const POLL_MAX_OPTIONS_COUNT: u8 = 10; // max poll options
+use crate::{
+    cmd_authentication::{
+        admin_list, admin_remove, authenticate, authorizations, authorize, unauthorize
+    }, 
+    cmd_bureau::bureau, 
+    cmd_poll::{
+        choose_target, 
+        set_quote, 
+        start_poll_dialogue, 
+        stats, PollState
+    }, 
+    HandlerResult
+};
 
 pub fn command_message_handler(
 ) -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
@@ -27,7 +34,7 @@ pub fn command_message_handler(
                 .branch(
                     require_authorization()
                         .branch(dptree::case![Command::Bureau].endpoint(bureau))
-                        .branch(dptree::case![Command::Poll].endpoint(poll::start_poll_dialogue))
+                        .branch(dptree::case![Command::Poll].endpoint(start_poll_dialogue))
                         .branch(dptree::case![Command::Stats].endpoint(stats)),
                 )
                 .branch(
@@ -47,12 +54,12 @@ pub fn command_message_handler(
                     ),
                 ),
         )
-        .branch(dptree::case![PollState::SetQuote { message_id, target }].endpoint(poll::set_quote))
+        .branch(dptree::case![PollState::SetQuote { message_id, target }].endpoint(set_quote))
 }
 
 pub fn command_callback_query_handler(
 ) -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
-    dptree::case![PollState::ChooseTarget { message_id }].endpoint(poll::choose_target)
+    dptree::case![PollState::ChooseTarget { message_id }].endpoint(choose_target)
 }
 
 // ----------------------------- ACCESS CONTROL -------------------------------
@@ -166,404 +173,4 @@ async fn help(bot: Bot, msg: Message) -> HandlerResult {
     bot.send_message(msg.chat.id, Command::descriptions().to_string())
         .await?;
     Ok(())
-}
-
-async fn bureau(bot: Bot, msg: Message) -> HandlerResult {
-    bot.send_poll(
-        msg.chat.id,
-        "Qui est au bureau ?",
-        [
-            "Je suis actuellement au bureau".to_owned(),
-            "Je suis à proximité du bureau".to_owned(),
-            "Je compte m'y rendre bientôt".to_owned(),
-            "J'y suis pas".to_owned(),
-            "Je suis à Satellite".to_owned(),
-            "Je suis pas en Suisse".to_owned(),
-        ],
-    )
-    .is_anonymous(false)
-    .await?;
-    Ok(())
-}
-
-async fn authenticate(
-    bot: Bot,
-    msg: Message,
-    (token, name): (String, String),
-    db: Arc<SqlitePool>,
-) -> HandlerResult {
-    if token == config().admin_token {
-        let id = msg.chat.id.to_string();
-        sqlx::query!(
-            r#"INSERT INTO admins(telegram_id, "name") VALUES($1, $2)"#,
-            id,
-            name
-        )
-        .execute(db.as_ref())
-        .await?;
-        bot.send_message(msg.chat.id, "Authentification réussie !")
-            .await?;
-    } else {
-        bot.send_message(msg.chat.id, "Le token est incorrect")
-            .await?;
-    }
-
-    Ok(())
-}
-
-async fn admin_list(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResult {
-    let admins = sqlx::query!(r#"SELECT "name" FROM admins"#)
-        .fetch_all(db.as_ref())
-        .await?;
-
-    bot.send_message(
-        msg.chat.id,
-        format!(
-            "Admin(s) actuel(s):\n{}",
-            admins
-                .into_iter()
-                .map(|r| format!(" - {}", r.name))
-                .collect::<Vec<_>>()
-                .join("\n"),
-        ),
-    )
-    .await?;
-
-    Ok(())
-}
-
-async fn admin_remove(bot: Bot, msg: Message, name: String, db: Arc<SqlitePool>) -> HandlerResult {
-    let mut tx = db.begin().await?;
-
-    if sqlx::query!("SELECT COUNT(*) AS count FROM admins WHERE name = $1", name)
-        .fetch_one(tx.as_mut())
-        .await?
-        .count
-        == 0
-    {
-        bot.send_message(msg.chat.id, format!("{} n'est pas admin", name))
-            .await?;
-        return Ok(());
-    }
-
-    sqlx::query!("DELETE FROM admins WHERE name = $1", name)
-        .execute(tx.as_mut())
-        .await?;
-    tx.commit().await?;
-
-    bot.send_message(msg.chat.id, format!("{} a été retiré(e) des admins", name))
-        .await?;
-
-    Ok(())
-}
-
-async fn authorize(bot: Bot, msg: Message, command: String, db: Arc<SqlitePool>) -> HandlerResult {
-    let mut tx = db.begin().await?;
-
-    let chat_id_str = msg.chat.id.to_string();
-    let already_authorized = sqlx::query!(
-        r#"SELECT COUNT(*) AS count FROM authorizations WHERE chat_id = $1 AND command = $2"#,
-        chat_id_str,
-        command
-    )
-    .fetch_one(tx.as_mut())
-    .await?;
-
-    if already_authorized.count == 0 {
-        sqlx::query!(
-            r#"INSERT INTO authorizations(command, chat_id) VALUES($1, $2)"#,
-            command,
-            chat_id_str
-        )
-        .execute(tx.as_mut())
-        .await?;
-    }
-
-    tx.commit().await?;
-
-    bot.send_message(
-        msg.chat.id,
-        format!("Ce groupe peut désormais utiliser la commande /{}", command),
-    )
-    .await?;
-    Ok(())
-}
-
-async fn unauthorize(
-    bot: Bot,
-    msg: Message,
-    command: String,
-    db: Arc<SqlitePool>,
-) -> HandlerResult {
-    let mut tx = db.begin().await?;
-
-    let chat_id_str = msg.chat.id.to_string();
-    let already_authorized = sqlx::query!(
-        r#"SELECT COUNT(*) AS count FROM authorizations WHERE chat_id = $1 AND command = $2"#,
-        chat_id_str,
-        command
-    )
-    .fetch_one(tx.as_mut())
-    .await?;
-
-    if already_authorized.count > 0 {
-        sqlx::query!(
-            r#"DELETE FROM authorizations WHERE command = $1 AND chat_id = $2"#,
-            command,
-            chat_id_str
-        )
-        .execute(tx.as_mut())
-        .await?;
-    }
-
-    tx.commit().await?;
-
-    bot.send_message(
-        msg.chat.id,
-        format!(
-            "Ce groupe ne peut désormais plus utiliser la commande /{}",
-            command
-        ),
-    )
-    .await?;
-    Ok(())
-}
-
-async fn authorizations(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerResult {
-    let chat_id_str = msg.chat.id.to_string();
-    let authorizations = sqlx::query!(
-        r#"SELECT command FROM authorizations WHERE chat_id = $1"#,
-        chat_id_str
-    )
-    .fetch_all(db.as_ref())
-    .await?;
-
-    bot.send_message(
-        msg.chat.id,
-        format!(
-            "Ce groupe peut utiliser les commandes suivantes:\n{}",
-            authorizations
-                .into_iter()
-                .map(|s| format!(" - {}", s.command))
-                .collect::<Vec<_>>()
-                .join("\n")
-        ),
-    )
-    .await?;
-
-    Ok(())
-}
-
-async fn stats(bot: Bot, msg: Message) -> HandlerResult {
-    let mut committee = match get_committee().await {
-        Ok(v) => v,
-        Err(e) => {
-            error!("Could not fetch committee: {e:#?}");
-            return Ok(());
-        }
-    };
-
-    committee.sort_by_key(|r| r.poll_count);
-
-    bot.send_message(
-        msg.chat.id,
-        committee
-            .into_iter()
-            .rev()
-            .map(|c| format!("- {} (polls: {})", c.name, c.poll_count))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    )
-    .await?;
-
-    Ok(())
-}
-
-mod poll {
-    use crate::{
-        commands::POLL_MAX_OPTIONS_COUNT,
-        directus::{get_committee, update_committee, Committee},
-    };
-    use log::error;
-    use rand::{seq::SliceRandom, thread_rng, Rng};
-    use teloxide::{
-        dispatching::dialogue::{GetChatId, InMemStorage},
-        payloads::{SendMessageSetters, SendPollSetters},
-        prelude::Dialogue,
-        requests::Requester,
-        types::{
-            CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, MessageId,
-            ReplyMarkup,
-        },
-        Bot,
-    };
-
-    use crate::HandlerResult;
-
-    #[derive(Default, Clone, Debug)]
-    pub enum PollState {
-        #[default]
-        Start,
-        ChooseTarget {
-            /// ID of the message querying the target of the /poll.
-            /// Used to delete the message after the selection.
-            message_id: MessageId,
-        },
-        SetQuote {
-            /// ID of the message querying the quote.
-            /// Used to delete the message after the selection.
-            message_id: MessageId,
-            target: String,
-        },
-    }
-    pub type PollDialogue = Dialogue<PollState, InMemStorage<PollState>>;
-
-    /// Starts the /poll dialogue by sending a message with an inline keyboard to select the target of the /poll.
-    pub async fn start_poll_dialogue(
-        bot: Bot,
-        msg: Message,
-        dialogue: PollDialogue,
-    ) -> HandlerResult {
-        log::info!("Starting /poll dialogue");
-
-        log::debug!("Removing /poll message");
-        bot.delete_message(msg.chat.id, msg.id).await?;
-
-        let committee = match get_committee().await {
-            Ok(v) => v,
-            Err(e) => {
-                error!("Could not fetch committee: {e:#?}");
-                return Ok(());
-            }
-        };
-
-        log::debug!("Sending message with inline keyboard for callback");
-        let msg = bot
-            .send_message(msg.chat.id, "Qui l'a dit ?")
-            .reply_markup(ReplyMarkup::InlineKeyboard(InlineKeyboardMarkup::new(
-                committee
-                    .into_iter()
-                    .map(|s| {
-                        InlineKeyboardButton::new(
-                            s.name.clone(),
-                            teloxide::types::InlineKeyboardButtonKind::CallbackData(s.name),
-                        )
-                    })
-                    .fold(vec![], |mut vec: Vec<Vec<InlineKeyboardButton>>, value| {
-                        if let Some(v) = vec.last_mut() {
-                            if v.len() < 3 {
-                                v.push(value);
-                                return vec;
-                            }
-                        }
-                        vec.push(vec![value]);
-                        vec
-                    }),
-            )))
-            .await?;
-
-        log::debug!("Updating dialogue to ChooseTarget");
-        dialogue
-            .update(PollState::ChooseTarget { message_id: msg.id })
-            .await?;
-
-        Ok(())
-    }
-
-    /// Handles the callback from the inline keyboard, and sends a message to query the quote.
-    /// The CallbackQuery data contains the name of the target.
-    pub async fn choose_target(
-        bot: Bot,
-        callback_query: CallbackQuery,
-        dialogue: PollDialogue,
-        message_id: MessageId,
-    ) -> HandlerResult {
-        if let Some(id) = callback_query.chat_id() {
-            log::debug!("Removing target query message");
-            bot.delete_message(dialogue.chat_id(), message_id).await?;
-
-            log::debug!("Sending quote query message");
-            let msg = bot.send_message(id, "Qu'a-t'il/elle dit ?").await?;
-
-            log::debug!("Updating dialogue to SetQuote");
-            dialogue
-                .update(PollState::SetQuote {
-                    message_id: msg.id,
-                    target: callback_query.data.unwrap_or_default(),
-                })
-                .await?;
-        }
-
-        Ok(())
-    }
-
-    /// Receives the quote and creates the poll. Since a poll can have at most 10 options,
-    /// it is split in two polls, each containing half of the comittee.
-    pub async fn set_quote(
-        bot: Bot,
-        msg: Message,
-        dialogue: PollDialogue,
-        (message_id, target): (MessageId, String),
-    ) -> HandlerResult {
-        if let Some(text) = msg.text() {
-            log::debug!("Removing quote query message");
-            bot.delete_message(dialogue.chat_id(), message_id).await?;
-            log::debug!("Removing quote message");
-            bot.delete_message(dialogue.chat_id(), msg.id).await?;
-
-            let committee = match get_committee().await {
-                Ok(v) => v,
-                Err(e) => {
-                    error!("Could not fetch committee: {e:#?}");
-                    return Ok(());
-                }
-            };
-
-            let mut poll = committee.iter().map(|c| c.name.clone()).collect::<Vec<_>>();
-
-            // Splits the committee to have only 10 answers possible.
-            poll.retain(|s| -> bool { *s != target }); // filter the target from options
-            poll.shuffle(&mut thread_rng()); // shuffle the options
-            let index = thread_rng().gen_range(0..(POLL_MAX_OPTIONS_COUNT - 1)); // generate a valid index to insert target back
-            poll.insert(index as usize, target.clone()); // insert target back in options
-
-            if poll.len() > POLL_MAX_OPTIONS_COUNT as usize {
-                // split options to have only 10 options
-                poll = poll.split_at(POLL_MAX_OPTIONS_COUNT as usize).0.to_vec();
-            }
-
-            log::debug!("Sending poll");
-            bot.send_poll(
-                dialogue.chat_id(),
-                format!(r#"Qui a dit: "{}" ?"#, text),
-                poll,
-            )
-            .type_(teloxide::types::PollType::Quiz)
-            .is_anonymous(false)
-            .correct_option_id(index)
-            .await?;
-
-            update_committee(
-                committee
-                    .into_iter()
-                    .map(|c| {
-                        if c.name == target {
-                            Committee {
-                                poll_count: c.poll_count + 1,
-                                ..c
-                            }
-                        } else {
-                            c
-                        }
-                    })
-                    .collect(),
-            )
-            .await;
-
-            log::debug!("Resetting dialogue status");
-            dialogue.update(PollState::Start).await?;
-        }
-
-        Ok(())
-    }
 }

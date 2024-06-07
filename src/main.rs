@@ -9,13 +9,17 @@ use teloxide::{
 };
 
 use crate::{
-    commands::{command_callback_query_handler, command_message_handler, Command, PollState},
+    commands::{command_callback_query_handler, command_message_handler, Command},
     directus::{update_committee, Committee},
+    cmd_poll::PollState
 };
 
 mod commands;
 mod config;
 mod directus;
+mod cmd_poll;
+mod cmd_bureau;
+mod cmd_authentication;
 
 pub type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
@@ -58,7 +62,7 @@ async fn main() {
 
     let mut bot_dispatcher = Dispatcher::builder(
         bot,
-        dialogue::enter::<Update, InMemStorage<commands::PollState>, commands::PollState, _>()
+        dialogue::enter::<Update, InMemStorage<PollState>, PollState, _>()
             .branch(message_handler)
             .branch(callback_handler),
     )

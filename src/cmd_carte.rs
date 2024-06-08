@@ -47,15 +47,21 @@ pub async fn start_card_dialogue(
     // bot.delete_message(msg.chat.id, msg.id).await?;
 
     // if there is a holder:
-    let cartd_status = "random"; // TODO get DB info from who hold the card
+    let cartd_status = "CLIC"; // TODO get DB info from who hold the card
+
+    let is_at_office = cartd_status == "CLIC";
+    let (text, token) = if is_at_office {("Donner la carte", "give_card")} else {("Rendre la carte", "return_card")};
+    
+    let row = vec![
+        InlineKeyboardButton::callback(text, token),
+        InlineKeyboardButton::callback("Cancel", "nothing")
+    ];
 
     log::debug!("Sending message with inline keyboard for callback");
 
-    let keyboard: Vec<Vec<InlineKeyboardButton>> = vec![vec![InlineKeyboardButton::callback("Donnez la carte", "give_card"), InlineKeyboardButton::callback("Cancel", "nothing")]];
-    
     bot
         .send_message(msg.chat.id, cartd_status)
-        .reply_markup(ReplyMarkup::InlineKeyboard(InlineKeyboardMarkup::new(keyboard)))
+        .reply_markup(ReplyMarkup::InlineKeyboard(InlineKeyboardMarkup::new(vec![row])))
         .await?;
 
     log::debug!("Updating dialogue to ChooseTarget");

@@ -12,15 +12,12 @@ use teloxide::{
 use crate::{
     cmd_authentication::{
         admin_list, admin_remove, authenticate, authorizations, authorize, unauthorize
-    }, 
-    cmd_bureau::bureau, 
-    cmd_poll::{
+    }, cmd_bureau::bureau, cmd_carte::{choose_option, give_card, start_card_dialogue, CardState}, cmd_poll::{
         choose_target, 
         set_quote, 
         start_poll_dialogue, 
         stats, PollState
-    }, 
-    HandlerResult
+    }, HandlerResult
 };
 
 pub fn command_message_handler(
@@ -35,7 +32,8 @@ pub fn command_message_handler(
                     require_authorization()
                         .branch(dptree::case![Command::Bureau].endpoint(bureau))
                         .branch(dptree::case![Command::Poll].endpoint(start_poll_dialogue))
-                        .branch(dptree::case![Command::Stats].endpoint(stats)),
+                        .branch(dptree::case![Command::Stats].endpoint(stats))
+                        .branch(dptree::case![Command::Carte].endpoint(start_card_dialogue)),
                 )
                 .branch(
                     require_admin().chain(
@@ -55,11 +53,15 @@ pub fn command_message_handler(
                 ),
         )
         .branch(dptree::case![PollState::SetQuote { message_id, target }].endpoint(set_quote))
+        .branch(dptree::case![CardState::GiveCard { message_id }].endpoint(give_card))
+        
 }
 
 pub fn command_callback_query_handler(
 ) -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
-    dptree::case![PollState::ChooseTarget { message_id }].endpoint(choose_target)
+    dptree::entry()
+        .branch(dptree::case![PollState::ChooseTarget { message_id }].endpoint(choose_target))
+        .branch(dptree::case![CardState::ChooseCardOption].endpoint(choose_option))
 }
 
 // ----------------------------- ACCESS CONTROL -------------------------------
@@ -147,6 +149,8 @@ pub enum Command {
     Authorizations,
     #[command(description = "(Admin) Affiche les stats des membres du comité")]
     Stats,
+    #[command(description = "Traque la carte invité CLIC")]
+    Carte
 }
 
 impl Command {
@@ -163,6 +167,7 @@ impl Command {
             Self::Unauthorize(..) => "unauthorize",
             Self::Authorizations => "authorizations",
             Self::Stats => "stats",
+            Self::Carte => "carte",
         }
     }
 }

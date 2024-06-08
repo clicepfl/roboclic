@@ -20,6 +20,7 @@ mod directus;
 mod cmd_poll;
 mod cmd_bureau;
 mod cmd_authentication;
+mod cmd_carte;
 
 pub type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 

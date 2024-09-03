@@ -11,16 +11,11 @@ use teloxide::{
 
 use crate::{
     cmd_authentication::{
-        admin_list, admin_remove, authenticate, authorizations, authorize, unauthorize
-    }, 
-    cmd_bureau::bureau, 
-    cmd_poll::{
-        choose_target, 
-        set_quote, 
-        start_poll_dialogue, 
-        stats, PollState
-    }, 
-    HandlerResult
+        admin_list, admin_remove, authenticate, authorizations, authorize, unauthorize,
+    },
+    cmd_bureau::bureau,
+    cmd_poll::{choose_target, set_quote, start_poll_dialogue, stats, PollState},
+    HandlerResult,
 };
 
 pub fn command_message_handler(
@@ -95,10 +90,7 @@ fn require_authorization() -> Endpoint<'static, DependencyMap, HandlerResult, Dp
 /// Required dependencies: `teloxide_core::types::message::Message`, `sqlx_sqlite::SqlitePool`
 fn require_admin() -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
     dptree::entry().filter_async(|msg: Message, db: Arc<SqlitePool>| async move {
-        let MessageKind::Common(MessageCommon {
-            from: Some(user), ..
-        }) = msg.kind
-        else {
+        let Some(user) = msg.from else {
             return false;
         };
 

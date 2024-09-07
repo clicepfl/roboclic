@@ -2,11 +2,7 @@ use std::sync::Arc;
 
 use sqlx::SqlitePool;
 use teloxide::{
-    dispatching::DpHandlerDescription,
-    prelude::*,
-    types::{Message, MessageCommon, MessageKind},
-    utils::command::BotCommands,
-    Bot,
+    dispatching::DpHandlerDescription, prelude::*, types::Message, utils::command::BotCommands, Bot,
 };
 
 use crate::{
@@ -140,6 +136,8 @@ pub enum Command {
     #[command(description = "(Admin) Affiche les stats des membres du comité")]
     Stats,
 }
+
+pub const RESTRICTED_COMMANDS: [Command; 3] = [Command::Bureau, Command::Poll, Command::Stats];
 
 impl Command {
     // Used as key for the access control map

@@ -1,10 +1,7 @@
-use std::sync::Arc;
-
+use crate::{commands::RESTRICTED_COMMANDS, config::config, HandlerResult};
 use sqlx::SqlitePool;
+use std::sync::Arc;
 use teloxide::{requests::Requester, types::Message, Bot};
-
-use crate::{config::config, HandlerResult};
-
 
 pub async fn authenticate(
     bot: Bot,
@@ -52,7 +49,12 @@ pub async fn admin_list(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerR
     Ok(())
 }
 
-pub async fn admin_remove(bot: Bot, msg: Message, name: String, db: Arc<SqlitePool>) -> HandlerResult {
+pub async fn admin_remove(
+    bot: Bot,
+    msg: Message,
+    name: String,
+    db: Arc<SqlitePool>,
+) -> HandlerResult {
     let mut tx = db.begin().await?;
 
     if sqlx::query!("SELECT COUNT(*) AS count FROM admins WHERE name = $1", name)
@@ -77,7 +79,12 @@ pub async fn admin_remove(bot: Bot, msg: Message, name: String, db: Arc<SqlitePo
     Ok(())
 }
 
-pub async fn authorize(bot: Bot, msg: Message, command: String, db: Arc<SqlitePool>) -> HandlerResult {
+pub async fn authorize(
+    bot: Bot,
+    msg: Message,
+    command: String,
+    db: Arc<SqlitePool>,
+) -> HandlerResult {
     let mut tx = db.begin().await?;
 
     let chat_id_str = msg.chat.id.to_string();
@@ -89,7 +96,21 @@ pub async fn authorize(bot: Bot, msg: Message, command: String, db: Arc<SqlitePo
     .fetch_one(tx.as_mut())
     .await?;
 
-    if already_authorized.count == 0 {
+    if RESTRICTED_COMMANDS
+        .iter()
+        .find(|c| c.shortand() == command)
+        .is_none()
+    {
+        bot.send_message(msg.chat.id, "Cette commande n'existe pas")
+            .await?;
+        return Ok(());
+    }
+
+    if already_authorized
+        .iter()
+        .find(|aa| aa.command == command)
+        .is_none()
+    {
         sqlx::query!(
             r#"INSERT INTO authorizations(command, chat_id) VALUES($1, $2)"#,
             command,

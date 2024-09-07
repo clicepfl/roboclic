@@ -160,14 +160,18 @@ pub async fn authorizations(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> Hand
 
     bot.send_message(
         msg.chat.id,
-        format!(
-            "Ce groupe peut utiliser les commandes suivantes:\n{}",
-            authorizations
-                .into_iter()
-                .map(|s| format!(" - {}", s.command))
-                .collect::<Vec<_>>()
-                .join("\n")
-        ),
+        if authorizations.is_empty() {
+            "Ce groupe ne peut utiliser aucune commande".to_owned()
+        } else {
+            format!(
+                "Ce groupe peut utiliser les commandes suivantes:\n{}",
+                authorizations
+                    .into_iter()
+                    .map(|s| format!(" - {}", s.command))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        },
     )
     .await?;
 

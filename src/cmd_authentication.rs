@@ -88,6 +88,13 @@ pub async fn authorize(
     let mut tx = db.begin().await?;
 
     let chat_id_str = msg.chat.id.to_string();
+
+    if !RESTRICTED_COMMANDS.iter().any(|c| c.shortand() == command) {
+        bot.send_message(msg.chat.id, "Cette commande n'existe pas")
+            .await?;
+        return Ok(());
+    }
+
     let already_authorized = sqlx::query!(
         r#"SELECT COUNT(*) AS count FROM authorizations WHERE chat_id = $1 AND command = $2"#,
         chat_id_str,
@@ -96,21 +103,7 @@ pub async fn authorize(
     .fetch_one(tx.as_mut())
     .await?;
 
-    if RESTRICTED_COMMANDS
-        .iter()
-        .find(|c| c.shortand() == command)
-        .is_none()
-    {
-        bot.send_message(msg.chat.id, "Cette commande n'existe pas")
-            .await?;
-        return Ok(());
-    }
-
-    if already_authorized
-        .iter()
-        .find(|aa| aa.command == command)
-        .is_none()
-    {
+    if already_authorized.count > 0 {
         sqlx::query!(
             r#"INSERT INTO authorizations(command, chat_id) VALUES($1, $2)"#,
             command,

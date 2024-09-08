@@ -9,17 +9,17 @@ use teloxide::{
 };
 
 use crate::{
+    cmd_poll::PollState,
     commands::{command_callback_query_handler, command_message_handler, Command},
     directus::{update_committee, Committee},
-    cmd_poll::PollState
 };
 
+mod cmd_authentication;
+mod cmd_bureau;
+mod cmd_poll;
 mod commands;
 mod config;
 mod directus;
-mod cmd_poll;
-mod cmd_bureau;
-mod cmd_authentication;
 
 pub type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
@@ -47,7 +47,8 @@ async fn main() {
         id: 1,
         name: "".into(),
         poll_count: 15,
-    }]).await;
+    }])
+    .await;
 
     log::info!("Loading config files");
     config::config();

@@ -9,8 +9,7 @@ use teloxide::{
     prelude::Dialogue,
     requests::Requester,
     types::{
-        CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, MessageId,
-        ReplyMarkup,
+        CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, MessageId, ReplyMarkup,
     },
     Bot,
 };
@@ -36,11 +35,7 @@ pub enum PollState {
 pub type PollDialogue = Dialogue<PollState, InMemStorage<PollState>>;
 
 /// Starts the /poll dialogue by sending a message with an inline keyboard to select the target of the /poll.
-pub async fn start_poll_dialogue(
-    bot: Bot,
-    msg: Message,
-    dialogue: PollDialogue,
-) -> HandlerResult {
+pub async fn start_poll_dialogue(bot: Bot, msg: Message, dialogue: PollDialogue) -> HandlerResult {
     log::info!("Starting /poll dialogue");
 
     log::debug!("Removing /poll message");

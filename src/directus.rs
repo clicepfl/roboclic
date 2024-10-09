@@ -26,7 +26,7 @@ impl From<serde_json::Error> for Error {
 #[derive(Deserialize, Debug)]
 pub struct Committee {
     pub id: i32,
-    #[serde(rename = "surname")]
+    #[serde(rename = "name")]
     pub name: String,
     pub poll_count: i32,
 }

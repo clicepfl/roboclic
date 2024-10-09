@@ -44,7 +44,7 @@ pub async fn get_committee() -> Result<Vec<Committee>, Error> {
 
     let response = Client::new()
         .get(format!(
-            "{}/items/association_memberships?fields=member.id,member.surname,member.poll_count",
+            "{}/items/association_memberships?fields=member.id,member.name,member.poll_count",
             config().directus_url
         ))
         .bearer_auth(&config().directus_token)

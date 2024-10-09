@@ -26,7 +26,7 @@ impl From<serde_json::Error> for Error {
 #[derive(Deserialize, Debug)]
 pub struct Committee {
     pub id: i32,
-    #[serde(rename = "surname")]
+    #[serde(rename = "name")]
     pub name: String,
     pub poll_count: i32,
 }
@@ -44,7 +44,7 @@ pub async fn get_committee() -> Result<Vec<Committee>, Error> {
 
     let response = Client::new()
         .get(format!(
-            "{}/items/association_memberships?fields=member.id,member.surname,member.poll_count",
+            "{}/items/association_memberships?fields=member.id,member.name,member.poll_count",
             config().directus_url
         ))
         .bearer_auth(&config().directus_token)

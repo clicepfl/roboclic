@@ -1,10 +1,7 @@
-use std::sync::Arc;
-
+use crate::{commands::RESTRICTED_COMMANDS, config::config, HandlerResult};
 use sqlx::SqlitePool;
+use std::sync::Arc;
 use teloxide::{requests::Requester, types::Message, Bot};
-
-use crate::{config::config, HandlerResult};
-
 
 pub async fn authenticate(
     bot: Bot,
@@ -52,7 +49,12 @@ pub async fn admin_list(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> HandlerR
     Ok(())
 }
 
-pub async fn admin_remove(bot: Bot, msg: Message, name: String, db: Arc<SqlitePool>) -> HandlerResult {
+pub async fn admin_remove(
+    bot: Bot,
+    msg: Message,
+    name: String,
+    db: Arc<SqlitePool>,
+) -> HandlerResult {
     let mut tx = db.begin().await?;
 
     if sqlx::query!("SELECT COUNT(*) AS count FROM admins WHERE name = $1", name)
@@ -77,10 +79,22 @@ pub async fn admin_remove(bot: Bot, msg: Message, name: String, db: Arc<SqlitePo
     Ok(())
 }
 
-pub async fn authorize(bot: Bot, msg: Message, command: String, db: Arc<SqlitePool>) -> HandlerResult {
+pub async fn authorize(
+    bot: Bot,
+    msg: Message,
+    command: String,
+    db: Arc<SqlitePool>,
+) -> HandlerResult {
     let mut tx = db.begin().await?;
 
     let chat_id_str = msg.chat.id.to_string();
+
+    if !RESTRICTED_COMMANDS.iter().any(|c| c.shortand() == command) {
+        bot.send_message(msg.chat.id, "Cette commande n'existe pas")
+            .await?;
+        return Ok(());
+    }
+
     let already_authorized = sqlx::query!(
         r#"SELECT COUNT(*) AS count FROM authorizations WHERE chat_id = $1 AND command = $2"#,
         chat_id_str,
@@ -89,7 +103,7 @@ pub async fn authorize(bot: Bot, msg: Message, command: String, db: Arc<SqlitePo
     .fetch_one(tx.as_mut())
     .await?;
 
-    if already_authorized.count == 0 {
+    if already_authorized.count > 0 {
         sqlx::query!(
             r#"INSERT INTO authorizations(command, chat_id) VALUES($1, $2)"#,
             command,
@@ -160,14 +174,18 @@ pub async fn authorizations(bot: Bot, msg: Message, db: Arc<SqlitePool>) -> Hand
 
     bot.send_message(
         msg.chat.id,
-        format!(
-            "Ce groupe peut utiliser les commandes suivantes:\n{}",
-            authorizations
-                .into_iter()
-                .map(|s| format!(" - {}", s.command))
-                .collect::<Vec<_>>()
-                .join("\n")
-        ),
+        if authorizations.is_empty() {
+            "Ce groupe ne peut utiliser aucune commande".to_owned()
+        } else {
+            format!(
+                "Ce groupe peut utiliser les commandes suivantes:\n{}",
+                authorizations
+                    .into_iter()
+                    .map(|s| format!(" - {}", s.command))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        },
     )
     .await?;
 

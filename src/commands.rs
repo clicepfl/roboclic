@@ -2,11 +2,7 @@ use std::sync::Arc;
 
 use sqlx::SqlitePool;
 use teloxide::{
-    dispatching::DpHandlerDescription,
-    prelude::*,
-    types::{Message, MessageCommon, MessageKind},
-    utils::command::BotCommands,
-    Bot,
+    dispatching::DpHandlerDescription, prelude::*, types::Message, utils::command::BotCommands, Bot,
 };
 
 use crate::{
@@ -68,7 +64,7 @@ fn require_authorization() -> Endpoint<'static, DependencyMap, HandlerResult, Dp
         |command: Command, msg: Message, pool: Arc<SqlitePool>| async move {
             let chat_id = msg.chat.id.to_string();
             let shortand = command.shortand();
-            match sqlx::query!(
+            let authorized =  match sqlx::query!(
                 r#"SELECT COUNT(*) AS count FROM authorizations WHERE chat_id = $1 AND command = $2"#,
                 chat_id,
                 shortand
@@ -80,7 +76,13 @@ fn require_authorization() -> Endpoint<'static, DependencyMap, HandlerResult, Dp
                     log::error!("Could not check authorization in database: {:?}", e);
                     false
                 },
+            };
+
+            if !authorized {
+                log::warn!("Chat {} tried to use the commmand {}", msg.chat.id, command.shortand())
             }
+
+            authorized
         },
     )
 }
@@ -140,6 +142,8 @@ pub enum Command {
     #[command(description = "(Admin) Affiche les stats des membres du comité")]
     Stats,
 }
+
+pub const RESTRICTED_COMMANDS: [Command; 3] = [Command::Bureau, Command::Poll, Command::Stats];
 
 impl Command {
     // Used as key for the access control map

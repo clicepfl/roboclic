@@ -79,7 +79,7 @@ fn require_authorization() -> Endpoint<'static, DependencyMap, HandlerResult, Dp
             };
 
             if !authorized {
-                log::warn!("Chat {} tried to use the commmand {}", msg.chat.id, command.shortand())
+                log::warn!("Unauthorized Chat {} tried to use the commmand {}", msg.chat.id, command.shortand())
             }
 
             authorized
@@ -91,20 +91,32 @@ fn require_authorization() -> Endpoint<'static, DependencyMap, HandlerResult, Dp
 ///
 /// Required dependencies: `teloxide_core::types::message::Message`, `sqlx_sqlite::SqlitePool`
 fn require_admin() -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
-    dptree::entry().filter_async(|msg: Message, db: Arc<SqlitePool>| async move {
-        let Some(user) = msg.from else {
-            return false;
-        };
+    dptree::entry().filter_async(
+        |command: Command, msg: Message, db: Arc<SqlitePool>| async move {
+            let Some(user) = msg.from else {
+                return false;
+            };
 
-        let id = user.id.to_string();
-        sqlx::query!(
-            "SELECT COUNT(*) AS is_admin FROM admins WHERE telegram_id = $1",
-            id
-        )
-        .fetch_one(db.as_ref())
-        .await
-        .is_ok_and(|r| r.is_admin > 0)
-    })
+            let id = user.id.to_string();
+            let is_admin = sqlx::query!(
+                "SELECT COUNT(*) AS is_admin FROM admins WHERE telegram_id = $1",
+                id
+            )
+            .fetch_one(db.as_ref())
+            .await
+            .is_ok_and(|r| r.is_admin > 0);
+
+            if !is_admin {
+                log::warn!(
+                    "Non-admin User {} tried to use the admin command {}",
+                    id,
+                    command.shortand()
+                );
+            }
+
+            is_admin
+        },
+    )
 }
 
 // --------------------------- AVAILABLE COMMANDS -----------------------------

@@ -103,7 +103,7 @@ pub async fn authorize(
     .fetch_one(tx.as_mut())
     .await?;
 
-    if already_authorized.count > 0 {
+    if already_authorized.count == 0 {
         sqlx::query!(
             r#"INSERT INTO authorizations(command, chat_id) VALUES($1, $2)"#,
             command,
@@ -115,11 +115,20 @@ pub async fn authorize(
 
     tx.commit().await?;
 
-    bot.send_message(
-        msg.chat.id,
-        format!("Ce groupe peut désormais utiliser la commande /{}", command),
-    )
-    .await?;
+    if already_authorized.count > 0 {
+        bot.send_message(
+            msg.chat.id,
+            format!("Ce groupe peut déjà utiliser la commande /{}", command),
+        )
+        .await?;
+    } else {
+        bot.send_message(
+            msg.chat.id,
+            format!("Ce groupe peut désormais utiliser la commande /{}", command),
+        )
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -152,14 +161,26 @@ pub async fn unauthorize(
 
     tx.commit().await?;
 
-    bot.send_message(
-        msg.chat.id,
-        format!(
-            "Ce groupe ne peut désormais plus utiliser la commande /{}",
-            command
-        ),
-    )
-    .await?;
+    if already_authorized.count == 0 {
+        bot.send_message(
+            msg.chat.id,
+            format!(
+                "Ce groupe ne peut déjà pas utiliser la commande /{}",
+                command
+            ),
+        )
+        .await?;
+    } else {
+        bot.send_message(
+            msg.chat.id,
+            format!(
+                "Ce groupe ne peut désormais plus utiliser la commande /{}",
+                command
+            ),
+        )
+        .await?;
+    }
+
     Ok(())
 }
 

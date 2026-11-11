@@ -1,17 +1,18 @@
 const POLL_MAX_OPTIONS_COUNT: u8 = 10; // max poll options
 
-use crate::directus::{get_committee, update_committee, Committee};
+use crate::directus::{Committee, get_committee, update_committee};
 use log::error;
-use rand::{seq::SliceRandom, thread_rng, Rng};
+use rand::{Rng, seq::SliceRandom, thread_rng};
 use teloxide::{
+    Bot,
     dispatching::dialogue::{GetChatId, InMemStorage},
     payloads::{SendMessageSetters, SendPollSetters},
     prelude::Dialogue,
     requests::Requester,
     types::{
         CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, MessageId, ReplyMarkup,
+        UserId,
     },
-    Bot,
 };
 
 use crate::HandlerResult;
@@ -24,11 +25,13 @@ pub enum PollState {
         /// ID of the message querying the target of the /poll.
         /// Used to delete the message after the selection.
         message_id: MessageId,
+        user_id: UserId,
     },
     SetQuote {
         /// ID of the message querying the quote.
         /// Used to delete the message after the selection.
         message_id: MessageId,
+        user_id: UserId,
         target: String,
     },
 }
@@ -76,7 +79,10 @@ pub async fn start_poll_dialogue(bot: Bot, msg: Message, dialogue: PollDialogue)
 
     log::debug!("Updating dialogue to ChooseTarget");
     dialogue
-        .update(PollState::ChooseTarget { message_id: msg.id })
+        .update(PollState::ChooseTarget {
+            message_id: msg.id,
+            user_id: msg.from.unwrap().id,
+        })
         .await?;
 
     Ok(())
@@ -90,7 +96,12 @@ pub async fn choose_target(
     dialogue: PollDialogue,
     message_id: MessageId,
 ) -> HandlerResult {
-    if let Some(id) = callback_query.chat_id() {
+    if let Some(id) = callback_query.chat_id()
+        && dialogue.get().await.unwrap().map_or(false, |p| match p {
+            PollState::ChooseTarget { user_id, .. } => callback_query.from.id == user_id,
+            _ => false,
+        })
+    {
         log::debug!("Removing target query message");
         bot.delete_message(dialogue.chat_id(), message_id).await?;
 
@@ -101,6 +112,7 @@ pub async fn choose_target(
         dialogue
             .update(PollState::SetQuote {
                 message_id: msg.id,
+                user_id: callback_query.from.id,
                 target: callback_query.data.unwrap_or_default(),
             })
             .await?;
@@ -117,7 +129,14 @@ pub async fn set_quote(
     dialogue: PollDialogue,
     (message_id, target): (MessageId, String),
 ) -> HandlerResult {
-    if let Some(text) = msg.text() {
+    if let Some(text) = msg.text()
+        && dialogue.get().await.unwrap().map_or(false, |p| match p {
+            PollState::SetQuote { user_id, .. } => {
+                msg.from.as_ref().unwrap().id.to_owned() == user_id
+            }
+            _ => false,
+        })
+    {
         log::debug!("Removing quote query message");
         bot.delete_message(dialogue.chat_id(), message_id).await?;
         log::debug!("Removing quote message");

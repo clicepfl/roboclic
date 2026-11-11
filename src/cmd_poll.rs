@@ -42,6 +42,7 @@ pub async fn start_poll_dialogue(bot: Bot, msg: Message, dialogue: PollDialogue)
     log::info!("Starting /poll dialogue");
 
     log::debug!("Removing /poll message");
+    let uid = msg.from.unwrap().id;
     bot.delete_message(msg.chat.id, msg.id).await?;
 
     let committee = match get_committee().await {
@@ -81,7 +82,7 @@ pub async fn start_poll_dialogue(bot: Bot, msg: Message, dialogue: PollDialogue)
     dialogue
         .update(PollState::ChooseTarget {
             message_id: msg.id,
-            user_id: msg.from.unwrap().id,
+            user_id: uid,
         })
         .await?;
 
@@ -94,13 +95,11 @@ pub async fn choose_target(
     bot: Bot,
     callback_query: CallbackQuery,
     dialogue: PollDialogue,
-    message_id: MessageId,
+    (message_id, user_id): (MessageId, UserId),
 ) -> HandlerResult {
+    log::info!("Got callback");
     if let Some(id) = callback_query.chat_id()
-        && dialogue.get().await.unwrap().map_or(false, |p| match p {
-            PollState::ChooseTarget { user_id, .. } => callback_query.from.id == user_id,
-            _ => false,
-        })
+        && callback_query.from.id == user_id
     {
         log::debug!("Removing target query message");
         bot.delete_message(dialogue.chat_id(), message_id).await?;
@@ -127,15 +126,10 @@ pub async fn set_quote(
     bot: Bot,
     msg: Message,
     dialogue: PollDialogue,
-    (message_id, target): (MessageId, String),
+    (message_id, user_id, target): (MessageId, UserId, String),
 ) -> HandlerResult {
     if let Some(text) = msg.text()
-        && dialogue.get().await.unwrap().map_or(false, |p| match p {
-            PollState::SetQuote { user_id, .. } => {
-                msg.from.as_ref().unwrap().id.to_owned() == user_id
-            }
-            _ => false,
-        })
+        && msg.from.as_ref().unwrap().id.to_owned() == user_id
     {
         log::debug!("Removing quote query message");
         bot.delete_message(dialogue.chat_id(), message_id).await?;

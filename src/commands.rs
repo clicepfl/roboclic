@@ -45,12 +45,23 @@ pub fn command_message_handler(
                     ),
                 ),
         )
-        .branch(dptree::case![PollState::SetQuote { message_id, target }].endpoint(set_quote))
+        .branch(
+            dptree::case![PollState::SetQuote {
+                message_id,
+                user_id,
+                target
+            }]
+            .endpoint(set_quote),
+        )
 }
 
 pub fn command_callback_query_handler(
 ) -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
-    dptree::case![PollState::ChooseTarget { message_id }].endpoint(choose_target)
+    dptree::case![PollState::ChooseTarget {
+        message_id,
+        user_id
+    }]
+    .endpoint(choose_target)
 }
 
 // ----------------------------- ACCESS CONTROL -------------------------------

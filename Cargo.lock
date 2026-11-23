@@ -1753,6 +1753,7 @@ dependencies = [
 name = "roboclic-v2"
 version = "0.1.0"
 dependencies = [
+ "dotenvy",
  "envconfig",
  "log",
  "pretty_env_logger",

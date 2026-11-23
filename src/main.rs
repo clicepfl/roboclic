@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use config::config;
-use sqlx::{migrate::MigrateDatabase, SqlitePool};
+use sqlx::{SqlitePool, migrate::MigrateDatabase};
 use teloxide::{
     dispatching::dialogue::{self, InMemStorage},
     prelude::*,
@@ -10,8 +10,8 @@ use teloxide::{
 
 use crate::{
     cmd_poll::PollState,
-    commands::{command_callback_query_handler, command_message_handler, Command},
-    directus::{update_committee, Committee},
+    commands::{Command, command_callback_query_handler, command_message_handler},
+    directus::{Committee, update_committee},
 };
 
 mod cmd_authentication;
@@ -20,6 +20,7 @@ mod cmd_poll;
 mod commands;
 mod config;
 mod directus;
+mod handle_link;
 
 pub type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
@@ -41,6 +42,7 @@ async fn init_db() -> SqlitePool {
 
 #[tokio::main]
 async fn main() {
+    dotenvy::dotenv().ok();
     pretty_env_logger::init();
 
     update_committee(vec![Committee {

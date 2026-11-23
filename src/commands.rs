@@ -2,20 +2,22 @@ use std::sync::Arc;
 
 use sqlx::SqlitePool;
 use teloxide::{
-    dispatching::DpHandlerDescription, prelude::*, types::Message, utils::command::BotCommands, Bot,
+    Bot, dispatching::DpHandlerDescription, dptree::endpoint, prelude::*, types::Message,
+    utils::command::BotCommands,
 };
 
 use crate::{
+    HandlerResult,
     cmd_authentication::{
         admin_list, admin_remove, authenticate, authorizations, authorize, unauthorize,
     },
     cmd_bureau::bureau,
-    cmd_poll::{choose_target, set_quote, start_poll_dialogue, stats, PollState},
-    HandlerResult,
+    cmd_poll::{PollState, choose_target, set_quote, start_poll_dialogue, stats},
+    handle_link::rewrite_link,
 };
 
-pub fn command_message_handler(
-) -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
+pub fn command_message_handler()
+-> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
     dptree::entry()
         .branch(
             dptree::entry()
@@ -53,10 +55,11 @@ pub fn command_message_handler(
             }]
             .endpoint(set_quote),
         )
+        .branch(endpoint(rewrite_link))
 }
 
-pub fn command_callback_query_handler(
-) -> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
+pub fn command_callback_query_handler()
+-> Endpoint<'static, DependencyMap, HandlerResult, DpHandlerDescription> {
     dptree::case![PollState::ChooseTarget {
         message_id,
         user_id
